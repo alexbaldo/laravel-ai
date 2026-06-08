@@ -395,14 +395,14 @@ trait ParsesTextResponses
 
         return new Usage(
             inputTokens: [
-                'text' => $this->extractModalityCost($usage['promptTokensDetails'] ?? [], 'TEXT') ?? (($usage['promptTokenCount'] ?? 0) - ($usage['cachedContentTokenCount'] ?? 0)),
+                'text' => $this->modalityTextTokens($usage['promptTokensDetails'] ?? [], ($usage['promptTokenCount'] ?? 0) - ($usage['cachedContentTokenCount'] ?? 0)),
                 'image' => $this->extractModalityCost($usage['promptTokensDetails'] ?? [], 'IMAGE') ?? 0,
                 'audio' => $this->extractModalityCost($usage['promptTokensDetails'] ?? [], 'AUDIO') ?? 0,
                 'video' => $this->extractModalityCost($usage['promptTokensDetails'] ?? [], 'VIDEO') ?? 0,
                 'document' => $this->extractModalityCost($usage['promptTokensDetails'] ?? [], 'DOCUMENT') ?? 0,
             ],
             outputTokens: [
-                'text' => $this->extractModalityCost($usage['candidatesTokensDetails'] ?? [], 'TEXT') ?? $usage['candidatesTokenCount'] ?? 0,
+                'text' => $this->modalityTextTokens($usage['candidatesTokensDetails'] ?? [], $usage['candidatesTokenCount'] ?? 0),
                 'image' => $this->extractModalityCost($usage['candidatesTokensDetails'] ?? [], 'IMAGE') ?? 0,
                 'audio' => $this->extractModalityCost($usage['candidatesTokensDetails'] ?? [], 'AUDIO') ?? 0,
                 'video' => $this->extractModalityCost($usage['candidatesTokensDetails'] ?? [], 'VIDEO') ?? 0,
@@ -410,14 +410,14 @@ trait ParsesTextResponses
                 'reasoning' => $usage['thoughtsTokenCount'] ?? 0,
             ],
             cachedTokens: [
-                'text' => $this->extractModalityCost($usage['cacheTokensDetails'] ?? [], 'TEXT') ?? $usage['cachedContentTokenCount'] ?? 0,
+                'text' => $this->modalityTextTokens($usage['cacheTokensDetails'] ?? [], $usage['cachedContentTokenCount'] ?? 0),
                 'image' => $this->extractModalityCost($usage['cacheTokensDetails'] ?? [], 'IMAGE') ?? 0,
                 'audio' => $this->extractModalityCost($usage['cacheTokensDetails'] ?? [], 'AUDIO') ?? 0,
                 'video' => $this->extractModalityCost($usage['cacheTokensDetails'] ?? [], 'VIDEO') ?? 0,
                 'document' => $this->extractModalityCost($usage['cacheTokensDetails'] ?? [], 'DOCUMENT') ?? 0,
             ],
             toolsTokens: [
-                'text' => $this->extractModalityCost($usage['toolUsePromptTokensDetails'] ?? [], 'TEXT') ?? $usage['toolUsePromptTokenCount'] ?? 0,
+                'text' => $this->modalityTextTokens($usage['toolUsePromptTokensDetails'] ?? [], $usage['toolUsePromptTokenCount'] ?? 0),
                 'image' => $this->extractModalityCost($usage['toolUsePromptTokensDetails'] ?? [], 'IMAGE') ?? 0,
                 'audio' => $this->extractModalityCost($usage['toolUsePromptTokensDetails'] ?? [], 'AUDIO') ?? 0,
                 'video' => $this->extractModalityCost($usage['toolUsePromptTokensDetails'] ?? [], 'VIDEO') ?? 0,
@@ -427,11 +427,27 @@ trait ParsesTextResponses
     }
 
     /**
-     * Retrieves the cost for a certain modality from the usage data, if available.
+     * Retrieves the token count for a certain modality from the usage data, if available.
      */
     private function extractModalityCost(array $data, string $modality): ?float
     {
-        return array_filter($data, fn ($detail) => $detail['modality'] === $modality)[0]['tokenCount'] ?? null;
+        foreach ($data as $detail) {
+            if (($detail['modality'] ?? null) === $modality) {
+                return $detail['tokenCount'] ?? null;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Resolve the text-modality token count, only falling back to the group
+     * total when no per-modality breakdown is present (so image/audio tokens
+     * are not double-counted as text).
+     */
+    private function modalityTextTokens(array $details, int $fallbackTotal): int
+    {
+        return (int) ($this->extractModalityCost($details, 'TEXT') ?? (filled($details) ? 0 : $fallbackTotal));
     }
 
     /**

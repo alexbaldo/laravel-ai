@@ -324,3 +324,76 @@ test('image response is empty when candidate is blocked with no content parts', 
 
     expect($response->images)->toHaveCount(0);
 });
+
+function fakeGeminiImageResponseWithUsage(array $usageMetadata): PromiseInterface
+{
+    return Http::response([
+        'candidates' => [[
+            'content' => [
+                'parts' => [[
+                    'inlineData' => [
+                        'mimeType' => 'image/png',
+                        'data' => base64_encode('fake-image'),
+                    ],
+                ]],
+            ],
+        ]],
+        'usageMetadata' => $usageMetadata,
+    ]);
+}
+
+test('image usage extracts image tokens regardless of modality order', function () {
+    Http::fake([
+        'generativelanguage.googleapis.com/*' => fakeGeminiImageResponseWithUsage([
+            'promptTokenCount' => 8,
+            'candidatesTokenCount' => 1120,
+            // IMAGE is not the first entry: a naive [0] lookup would miss it.
+            'candidatesTokensDetails' => [
+                ['modality' => 'TEXT', 'tokenCount' => 0],
+                ['modality' => 'IMAGE', 'tokenCount' => 1120],
+            ],
+        ]),
+    ]);
+
+    $usage = Image::of('A red apple')
+        ->generate(provider: 'gemini', model: 'gemini-3.1-flash-image-preview')
+        ->usage->toArray();
+
+    expect(data_get($usage, 'output_tokens.image'))->toEqual(1120)
+        ->and(data_get($usage, 'output_tokens.text'))->toEqual(0);
+});
+
+test('image usage does not double-count image tokens as text when no text modality is present', function () {
+    Http::fake([
+        'generativelanguage.googleapis.com/*' => fakeGeminiImageResponseWithUsage([
+            'promptTokenCount' => 8,
+            'candidatesTokenCount' => 1120,
+            'candidatesTokensDetails' => [
+                ['modality' => 'IMAGE', 'tokenCount' => 1120],
+            ],
+        ]),
+    ]);
+
+    $usage = Image::of('A red apple')
+        ->generate(provider: 'gemini', model: 'gemini-3.1-flash-image-preview')
+        ->usage->toArray();
+
+    expect(data_get($usage, 'output_tokens.image'))->toEqual(1120)
+        ->and(data_get($usage, 'output_tokens.text'))->toEqual(0);
+});
+
+test('output text falls back to total token count when no modality breakdown is present', function () {
+    Http::fake([
+        'generativelanguage.googleapis.com/*' => fakeGeminiImageResponseWithUsage([
+            'promptTokenCount' => 8,
+            'candidatesTokenCount' => 42,
+        ]),
+    ]);
+
+    $usage = Image::of('A red apple')
+        ->generate(provider: 'gemini', model: 'gemini-3.1-flash-image-preview')
+        ->usage->toArray();
+
+    expect(data_get($usage, 'output_tokens.text'))->toEqual(42)
+        ->and(data_get($usage, 'output_tokens.image'))->toEqual(0);
+});
