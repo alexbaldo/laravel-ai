@@ -78,7 +78,16 @@ class OpenAiGateway implements Gateway
 
         $this->validateTextResponse($data);
 
-        return $this->parseTextResponse($data, $provider, filled($schema), $tools, $schema, $options, $timeout);
+        return $this->parseTextResponse(
+            $data,
+            $provider,
+            filled($schema),
+            $tools,
+            $schema,
+            $options,
+            $body,
+            $timeout,
+        );
     }
 
     /**
@@ -116,6 +125,7 @@ class OpenAiGateway implements Gateway
             $schema,
             $options,
             $response->getBody(),
+            $body,
             0,
             null,
             $timeout,
@@ -287,7 +297,7 @@ class OpenAiGateway implements Gateway
         $response = $this->withErrorHandling(
             $provider->name(),
             fn () => $this->client($provider, $timeout)
-                ->attach('file', $audio->content(), $this->audioFilename($audio), ['Content-Type' => $audio->mimeType()])
+                ->attach('file', $audio->content(), $this->audioFilename($audio), array_filter(['Content-Type' => $audio->mimeType()]))
                 ->post('audio/transcriptions', array_merge($providerOptions, array_filter([
                     'model' => $model,
                     'language' => $language,
