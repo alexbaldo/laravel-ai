@@ -41,7 +41,7 @@ class JinaGateway implements EmbeddingGateway, RerankingGateway
                 $providerOptions,
                 [
                     'model' => $model,
-                    'input' => array_map(fn (string $text) => ['text' => $text], $inputs),
+                    'input' => array_map(fn (string $text): array => ['text' => $text], $inputs),
                     'dimensions' => $dimensions,
                 ],
             )),
@@ -82,7 +82,7 @@ class JinaGateway implements EmbeddingGateway, RerankingGateway
 
         $data = $response->json();
 
-        $results = (new Collection($data['results']))->map(fn (array $result) => new RankedDocument(
+        $results = (new Collection($data['results']))->map(fn (array $result): RankedDocument => new RankedDocument(
             index: $result['index'],
             document: $documents[$result['index']],
             score: $result['relevance_score'],

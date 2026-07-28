@@ -4,24 +4,20 @@ namespace Laravel\Ai\Gateway\Gemini\Concerns;
 
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
-use Laravel\Ai\Contracts\Tool;
 use Laravel\Ai\Exceptions\AiException;
-use Laravel\Ai\Gateway\TextGenerationOptions;
-use Laravel\Ai\Messages\AssistantMessage;
-use Laravel\Ai\Messages\ToolResultMessage;
+use Laravel\Ai\Gateway\Concerns\DecodesStructuredOutput;
+use Laravel\Ai\Gateway\StepResponse;
 use Laravel\Ai\Providers\Provider;
 use Laravel\Ai\Responses\Data\FinishReason;
 use Laravel\Ai\Responses\Data\Meta;
-use Laravel\Ai\Responses\Data\Step;
 use Laravel\Ai\Responses\Data\ToolCall;
-use Laravel\Ai\Responses\Data\ToolResult;
 use Laravel\Ai\Responses\Data\UrlCitation;
 use Laravel\Ai\Responses\Data\Usage;
-use Laravel\Ai\Responses\StructuredTextResponse;
-use Laravel\Ai\Responses\TextResponse;
 
 trait ParsesTextResponses
 {
+    use DecodesStructuredOutput;
+
     /**
      * Validate the Gemini response data.
      *
@@ -39,212 +35,28 @@ trait ParsesTextResponses
     }
 
     /**
-     * Parse the Gemini response data into a TextResponse.
+     * Parse the Gemini response data into a single step response.
      */
     protected function parseTextResponse(
         array $data,
         Provider $provider,
         string $model,
         bool $structured,
-        array $tools = [],
-        ?array $schema = null,
-        ?TextGenerationOptions $options = null,
-        array $contents = [],
-        ?string $instructions = null,
-        ?int $timeout = null,
-    ): TextResponse {
-        return $this->processResponse(
-            $data,
-            $provider,
-            $model,
-            $structured,
-            $tools,
-            $schema,
-            new Collection,
-            new Collection,
-            $contents,
-            $instructions,
-            $options,
-            maxSteps: $options?->maxSteps,
-            timeout: $timeout,
-        );
-    }
-
-    /**
-     * Process a single response, handling tool loops recursively.
-     */
-    protected function processResponse(
-        array $data,
-        Provider $provider,
-        string $model,
-        bool $structured,
-        array $tools,
-        ?array $schema,
-        Collection $steps,
-        Collection $messages,
-        array $contents,
-        ?string $instructions,
-        ?TextGenerationOptions $options,
-        int $depth = 0,
-        ?int $maxSteps = null,
-        ?int $timeout = null,
-    ): TextResponse {
+    ): StepResponse {
         $candidate = $data['candidates'][0] ?? [];
         $parts = $candidate['content']['parts'] ?? [];
 
         $text = $this->extractText($parts);
         $rawToolCalls = $this->extractRawToolCalls($parts);
-        $citations = $this->extractCitations($data);
-        $usage = $this->extractUsage($data);
-        $finishReason = $this->extractFinishReason($data, $rawToolCalls);
 
-        $mappedToolCalls = $this->mapToolCalls($rawToolCalls);
-        $meta = new Meta($provider->name(), $model, $citations);
-        $toolResults = [];
-
-        $assistantMessage = new AssistantMessage($text, collect($mappedToolCalls));
-        $messages->push($assistantMessage);
-
-        if ($finishReason === FinishReason::ToolCalls &&
-            filled($mappedToolCalls) &&
-            $steps->count() < ($maxSteps ?? round(count($tools) * 1.5))) {
-            $toolResults = $this->executeToolCalls($mappedToolCalls, $tools);
-        }
-
-        $steps->push(new Step($text, $mappedToolCalls, $toolResults, $finishReason, $usage, $meta));
-
-        if (filled($toolResults)) {
-            $messages->push(new ToolResultMessage(collect($toolResults)));
-
-            $contents[] = ['role' => 'model', 'parts' => $this->sanitizeRequestParts($this->excludeThinkingParts($parts))];
-            $contents[] = ['role' => 'user', 'parts' => $this->buildFunctionResponseParts($toolResults)];
-
-            return $this->continueWithToolResults(
-                $model,
-                $provider,
-                $structured,
-                $tools,
-                $schema,
-                $steps,
-                $messages,
-                $contents,
-                $instructions,
-                $options,
-                $depth + 1,
-                $maxSteps,
-                $timeout,
-            );
-        }
-
-        $allToolCalls = $steps->flatMap(fn (Step $s) => $s->toolCalls);
-        $allToolResults = $steps->flatMap(fn (Step $s) => $s->toolResults);
-
-        if ($structured) {
-            $structuredData = $this->decodeStructuredPayload($text, $schema);
-
-            if ($structuredData === [] && count($schema) === 1 && $allToolResults->isNotEmpty()) {
-                $property = array_key_first($schema);
-                $lastResult = $allToolResults->last()?->result;
-
-                if (is_numeric($lastResult)) {
-                    $structuredData = [$property => (int) $lastResult];
-                }
-            }
-
-            return (new StructuredTextResponse(
-                $structuredData,
-                $text,
-                $this->combineUsage($steps),
-                $meta,
-            ))->withToolCallsAndResults(
-                toolCalls: $allToolCalls,
-                toolResults: $allToolResults,
-            )->withSteps($steps);
-        }
-
-        return (new TextResponse(
-            $text,
-            $this->combineUsage($steps),
-            $meta,
-        ))->withMessages($messages)->withSteps($steps);
-    }
-
-    /**
-     * Execute tool calls and return tool results.
-     *
-     * @param  array<ToolCall>  $toolCalls
-     * @param  array<Tool>  $tools
-     * @return array<ToolResult>
-     */
-    protected function executeToolCalls(array $toolCalls, array $tools): array
-    {
-        $results = [];
-
-        foreach ($toolCalls as $toolCall) {
-            $tool = $this->findTool($toolCall->name, $tools);
-
-            if ($tool === null) {
-                continue;
-            }
-
-            $result = $this->executeTool($tool, $toolCall->arguments);
-
-            $results[] = new ToolResult(
-                $toolCall->id,
-                $toolCall->name,
-                $toolCall->arguments,
-                $result,
-                $toolCall->resultId,
-            );
-        }
-
-        return $results;
-    }
-
-    /**
-     * Continue the conversation with tool results by resending the full history.
-     */
-    protected function continueWithToolResults(
-        string $model,
-        Provider $provider,
-        bool $structured,
-        array $tools,
-        ?array $schema,
-        Collection $steps,
-        Collection $messages,
-        array $contents,
-        ?string $instructions,
-        ?TextGenerationOptions $options,
-        int $depth,
-        ?int $maxSteps,
-        ?int $timeout = null,
-    ): TextResponse {
-        $body = $this->rebuildContinuationBody($contents, $instructions, $tools, $schema, $options, $provider);
-
-        $response = $this->withErrorHandling(
-            $provider->name(),
-            fn () => $this->client($provider, $timeout)->post("models/{$model}:generateContent", $body),
-        );
-
-        $data = $response->json();
-
-        $this->validateTextResponse($data);
-
-        return $this->processResponse(
-            $data,
-            $provider,
-            $model,
-            $structured,
-            $tools,
-            $schema,
-            $steps,
-            $messages,
-            $contents,
-            $instructions,
-            $options,
-            $depth,
-            $maxSteps,
-            $timeout,
+        return new StepResponse(
+            text: $text,
+            toolCalls: $this->mapToolCalls($rawToolCalls),
+            finishReason: $this->extractFinishReason($data, $rawToolCalls),
+            usage: $this->extractUsage($data),
+            meta: new Meta($provider->name(), $model, $this->extractCitations($data)),
+            structured: $structured ? $this->decodeStructuredOutput($text) : null,
+            providerContentBlocks: $this->sanitizeRequestParts($this->excludeThinkingParts($parts)),
         );
     }
 
@@ -287,7 +99,7 @@ trait ParsesTextResponses
     {
         return array_values(array_filter(
             $parts,
-            fn (array $part) => ! $this->isThinkingPart($part),
+            fn (array $part): bool => ! $this->isThinkingPart($part),
         ));
     }
 
@@ -315,7 +127,7 @@ trait ParsesTextResponses
         return array_values(
             array_map(
                 fn (array $part) => $part['functionCall'],
-                array_filter($parts, fn (array $part) => isset($part['functionCall']))
+                array_filter($parts, fn (array $part): bool => isset($part['functionCall']))
             )
         );
     }
@@ -327,7 +139,7 @@ trait ParsesTextResponses
      */
     protected function mapToolCalls(array $rawToolCalls): array
     {
-        return array_map(function (array $fc) {
+        return array_map(function (array $fc): ToolCall {
             $id = $fc['id'] ?? (string) Str::uuid7();
 
             return new ToolCall(
@@ -372,7 +184,7 @@ trait ParsesTextResponses
             }
         }
 
-        foreach ($referencedIndices as $index => $_) {
+        foreach (array_keys($referencedIndices) as $index) {
             $web = $groundingChunks[$index]['web'] ?? [];
 
             if (isset($web['uri'])) {
@@ -452,77 +264,5 @@ trait ParsesTextResponses
             'SAFETY', 'RECITATION', 'BLOCKLIST', 'PROHIBITED_CONTENT', 'SPII', 'MALFORMED_FUNCTION_CALL' => FinishReason::ContentFilter,
             default => FinishReason::Unknown,
         };
-    }
-
-    /**
-     * Combine usage across all steps.
-     */
-    protected function combineUsage(Collection $steps): Usage
-    {
-        return $steps->reduce(
-            fn (Usage $carry, Step $step) => $carry->add($step->usage),
-            new Usage
-        );
-    }
-
-    /**
-     * Decode structured payload from Gemini text output.
-     */
-    protected function decodeStructuredPayload(string $text, ?array $schema): array
-    {
-        $decoded = json_decode($text, true);
-
-        if (is_array($decoded)) {
-            return $this->unwrapCommonWrapper($decoded);
-        }
-
-        // Handle markdown-fenced JSON payloads.
-        if (preg_match('/```(?:json)?\\s*(\{.*\})\\s*```/s', $text, $matches) === 1) {
-            $decoded = json_decode($matches[1], true);
-
-            if (is_array($decoded)) {
-                return $this->unwrapCommonWrapper($decoded);
-            }
-        }
-
-        // Handle plain JSON object text embedded in prose.
-        if (preg_match('/\{.*\}/s', $text, $matches) === 1) {
-            $decoded = json_decode($matches[0], true);
-
-            if (is_array($decoded)) {
-                return $this->unwrapCommonWrapper($decoded);
-            }
-        }
-
-        $propertyNames = array_keys($schema ?? []);
-
-        if (count($propertyNames) === 1) {
-            $property = $propertyNames[0];
-            $trimmed = trim($text);
-
-            if (is_numeric($trimmed)) {
-                return [$property => (int) $trimmed];
-            }
-
-            if (preg_match('/-?\d+/', $trimmed, $matches) === 1) {
-                return [$property => (int) $matches[0]];
-            }
-        }
-
-        return [];
-    }
-
-    /**
-     * Unwrap common provider wrappers around structured payloads.
-     */
-    protected function unwrapCommonWrapper(array $decoded): array
-    {
-        foreach (['response', 'result', 'data', 'output'] as $wrapper) {
-            if (isset($decoded[$wrapper]) && is_array($decoded[$wrapper])) {
-                return $decoded[$wrapper];
-            }
-        }
-
-        return $decoded;
     }
 }

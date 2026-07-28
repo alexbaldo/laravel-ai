@@ -55,7 +55,7 @@ class FakeEmbeddingGateway implements EmbeddingGateway
 
         return tap($this->marshalResponse(
             $response, $provider, $model, $prompt
-        ), fn () => $this->currentResponseIndex++);
+        ), fn (): int => $this->currentResponseIndex++);
     }
 
     /**
@@ -101,7 +101,7 @@ class FakeEmbeddingGateway implements EmbeddingGateway
     protected function generateFakeEmbeddings(int $count, int $dimensions): array
     {
         return array_map(
-            fn () => Embeddings::fakeEmbedding($dimensions),
+            fn (): array => Embeddings::fakeEmbedding($dimensions),
             range(1, $count)
         );
     }
