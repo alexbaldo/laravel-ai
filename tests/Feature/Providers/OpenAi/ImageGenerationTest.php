@@ -170,6 +170,30 @@ test('image response defaults to zero usage when not returned by dalle', functio
         ->and($response->usage->completionTokens)->toBe(0);
 });
 
+test('image usage attributes output tokens to the image modality', function (): void {
+    Http::fake(['*' => Http::response([
+        'data' => [[
+            'b64_json' => base64_encode('fake-image'),
+        ]],
+        'usage' => [
+            'total_tokens' => 1156,
+            'input_tokens' => 100,
+            'output_tokens' => 1056,
+            'input_tokens_details' => [
+                'text_tokens' => 93,
+                'image_tokens' => 7,
+            ],
+        ],
+    ])]);
+
+    $response = Image::of('A red apple')->generate(provider: 'openai', model: 'gpt-image-2');
+
+    expect($response->usage->inputTokens)->toBe(['text' => 93, 'image' => 7])
+        ->and($response->usage->outputTokens)->toBe(['image' => 1056])
+        ->and($response->usage->promptTokens)->toBe(100)
+        ->and($response->usage->completionTokens)->toBe(1056);
+});
+
 test('image generation request omits response_format for dall-e models', function (): void {
     Http::fake([
         '*' => fakeOpenAiImageResponse(),
