@@ -5,6 +5,13 @@ namespace Laravel\Ai\Responses\Data;
 use Illuminate\Contracts\Support\Arrayable;
 use JsonSerializable;
 
+/**
+ * @property-read int $promptTokens
+ * @property-read int $completionTokens
+ * @property-read int $reasoningTokens
+ * @property-read int $cacheWriteInputTokens
+ * @property-read int $cacheReadInputTokens
+ */
 class Usage implements Arrayable, JsonSerializable
 {
     public function __construct(
