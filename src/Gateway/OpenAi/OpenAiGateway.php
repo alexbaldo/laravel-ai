@@ -164,8 +164,33 @@ class OpenAiGateway implements Gateway
                 $image['b64_json'] ?? '',
                 'image/png',
             )),
-            $this->extractUsage($data),
+            $this->extractImageUsage($data),
             new Meta($provider->name(), $model),
+        );
+    }
+
+    /**
+     * Extract usage from an Images API response.
+     *
+     * The Images API reports input token details but no output token details;
+     * every output token it bills is an image token.
+     */
+    protected function extractImageUsage(array $data): Usage
+    {
+        $usage = $data['usage'] ?? [];
+
+        return new Usage(
+            inputTokens: [
+                'text' => $usage['input_tokens_details']['text_tokens'] ?? $usage['input_tokens'] ?? 0,
+                'image' => $usage['input_tokens_details']['image_tokens'] ?? 0,
+            ],
+            outputTokens: [
+                'image' => $usage['output_tokens'] ?? 0,
+            ],
+            cachedTokens: [
+                'text' => $usage['input_tokens_details']['cached_tokens_details']['text_tokens'] ?? $usage['input_tokens_details']['cached_tokens'] ?? 0,
+                'image' => $usage['input_tokens_details']['cached_tokens_details']['image_tokens'] ?? 0,
+            ],
         );
     }
 
