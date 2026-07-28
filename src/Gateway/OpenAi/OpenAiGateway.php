@@ -172,12 +172,13 @@ class OpenAiGateway implements Gateway
     /**
      * Extract usage from an Images API response.
      *
-     * The Images API reports input token details but no output token details;
-     * every output token it bills is an image token.
+     * The Images API marks output token details as optional; when they are
+     * missing, every output token it bills is an image token.
      */
     protected function extractImageUsage(array $data): Usage
     {
         $usage = $data['usage'] ?? [];
+        $outputDetails = $usage['output_tokens_details'] ?? null;
 
         return new Usage(
             inputTokens: [
@@ -185,7 +186,8 @@ class OpenAiGateway implements Gateway
                 'image' => $usage['input_tokens_details']['image_tokens'] ?? 0,
             ],
             outputTokens: [
-                'image' => $usage['output_tokens'] ?? 0,
+                'text' => $outputDetails['text_tokens'] ?? 0,
+                'image' => $outputDetails ? ($outputDetails['image_tokens'] ?? 0) : ($usage['output_tokens'] ?? 0),
             ],
             cachedTokens: [
                 'text' => $usage['input_tokens_details']['cached_tokens_details']['text_tokens'] ?? $usage['input_tokens_details']['cached_tokens'] ?? 0,
