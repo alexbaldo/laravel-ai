@@ -22,6 +22,17 @@
 
 **Full Changelog**: https://github.com/laravel/ai/compare/v0.10.1...v0.10.2
 
+## [v0.7.5](https://github.com/alexbaldo/laravel-ai/compare/v0.7.4...v0.7.5) - 2026-06-08
+
+### Fixed
+
+- Gemini: usage modality extraction no longer misattributes tokens (extractModalityCost missed modalities not at index 0 of the breakdown, and the text-modality fallback double-counted image/audio tokens as text when the breakdown had no TEXT entry). Affects text, image generation, and streaming usage.
+
+### Notes
+
+- Continues the v0.7.x maintenance line (based on v0.7.2) consumed by ai-ai. Includes the Images API usage attribution fixes from v0.7.3/v0.7.4.
+- The same fixes are applied on 0.x.
+
 ## [v0.10.1](https://github.com/laravel/ai/compare/v0.10.0...v0.10.1) - 2026-07-21
 
 * [0.x] Update .gitattributes by [@jackbayliss](https://github.com/jackbayliss) in https://github.com/laravel/ai/pull/806
