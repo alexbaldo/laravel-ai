@@ -162,6 +162,7 @@ trait ParsesTextResponses
                 'audio' => $details['cached_tokens_details']['audio_tokens'] ?? 0,
             ],
             cacheWriteInputTokens: $cacheWriteTokens,
+            cacheReadInputTokens: $cachedTokens,
         );
     }
 
