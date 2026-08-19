@@ -55,7 +55,7 @@ trait HandlesTextStreaming
         $usage = null;
         $stopReason = '';
 
-        $emitTextStart = function () use (&$textStartEmitted, $messageId, $invocationId): ?\Laravel\Ai\Streaming\Events\StreamEvent {
+        $emitTextStart = function () use (&$textStartEmitted, &$messageId, $invocationId): ?\Laravel\Ai\Streaming\Events\StreamEvent {
             if ($textStartEmitted) {
                 return null;
             }
@@ -155,6 +155,17 @@ trait HandlesTextStreaming
                         time(),
                     ))->withInvocationId($invocationId);
                 } elseif ($this->isProviderToolResultBlock($blockType)) {
+                    $fetchResult = $data['content_block']['content'] ?? [];
+
+                    if ($blockType === 'web_fetch_tool_result' && ($fetchResult['type'] ?? '') === 'web_fetch_result' && filled($fetchResult['url'] ?? null)) {
+                        yield (new CitationEvent(
+                            $this->generateEventId(),
+                            $messageId,
+                            new UrlCitation($fetchResult['url'], $fetchResult['content']['title'] ?? null),
+                            time(),
+                        ))->withInvocationId($invocationId);
+                    }
+
                     yield (new ProviderToolEvent(
                         $this->generateEventId(),
                         $data['content_block']['tool_use_id'] ?? $data['content_block']['id'] ?? '',
@@ -250,6 +261,7 @@ trait HandlesTextStreaming
                     ))->withInvocationId($invocationId);
 
                     $textStartEmitted = false;
+                    $messageId = $this->generateEventId();
                 } elseif ($currentBlockType === 'thinking' && $reasoningStartEmitted) {
                     if (isset($responseContent[$currentBlockIndex])) {
                         $responseContent[$currentBlockIndex]['thinking'] = $currentThinkingText;

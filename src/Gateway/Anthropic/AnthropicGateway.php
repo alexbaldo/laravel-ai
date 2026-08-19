@@ -186,7 +186,8 @@ class AnthropicGateway implements Gateway, StepTextGateway
      */
     protected function overloadedStatusCodes(): array
     {
-        return [529];
+        // 529 is Anthropic's own "overloaded" status, plus the shared transient gateway and Cloudflare codes.
+        return [529, 502, 503, 504, 520, 522, 524];
     }
 
     /**
@@ -200,6 +201,7 @@ class AnthropicGateway implements Gateway, StepTextGateway
             'quota exceeded',
             'exceeded your current quota',
             'billing',
+            'usage limit',
         ];
     }
 }

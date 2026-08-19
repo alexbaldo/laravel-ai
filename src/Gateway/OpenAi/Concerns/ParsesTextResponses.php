@@ -62,6 +62,7 @@ trait ParsesTextResponses
             meta: new Meta($provider->name(), $data['model'] ?? '', $this->extractCitations($output)),
             structured: $structured ? $this->decodeStructuredOutput($text) : null,
             continuationToken: $data['id'] ?? '',
+            providerContentBlocks: $this->isStateless($provider) ? $this->extractReplayBlocks($output) : [],
         );
     }
 
@@ -119,17 +120,35 @@ trait ParsesTextResponses
     }
 
     /**
+     * Extract the ordered response output for stateless (store=false) replay.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    protected function extractReplayBlocks(array $output): array
+    {
+        return array_values(array_filter($output, 'is_array'));
+    }
+
+    /**
      * Extract usage data from the response.
      */
     protected function extractUsage(array $data): Usage
     {
         $usage = $data['usage'] ?? [];
+        $details = $usage['input_tokens_details'] ?? [];
+        $cachedTokens = $details['cached_tokens'] ?? 0;
+        $cacheWriteTokens = $details['cache_write_tokens'] ?? 0;
+
+        // Cached and cache-write tokens are billed at their own rates, so they do not
+        // belong in the plain input count. They are text tokens, which is why only the
+        // text bucket is corrected and the image and audio ones are taken as reported.
+        $textTokens = $details['text_tokens'] ?? $usage['input_tokens'] ?? 0;
 
         return new Usage(
             inputTokens: [
-                'text' => $usage['input_tokens_details']['text_tokens'] ?? $usage['input_tokens'] ?? 0,
-                'image' => $usage['input_tokens_details']['image_tokens'] ?? 0,
-                'audio' => $usage['input_tokens_details']['audio_tokens'] ?? 0,
+                'text' => max($textTokens - $cachedTokens - $cacheWriteTokens, 0),
+                'image' => $details['image_tokens'] ?? 0,
+                'audio' => $details['audio_tokens'] ?? 0,
             ],
             outputTokens: [
                 'text' => $usage['output_tokens_details']['text_tokens'] ?? $usage['output_tokens'] ?? 0,
@@ -138,10 +157,11 @@ trait ParsesTextResponses
                 'reasoning' => $usage['output_tokens_details']['reasoning_tokens'] ?? 0,
             ],
             cachedTokens: [
-                'text' => $usage['input_tokens_details']['cached_tokens_details']['text_tokens'] ?? $usage['input_tokens_details']['cached_tokens'] ?? 0,
-                'image' => $usage['input_tokens_details']['cached_tokens_details']['image_tokens'] ?? 0,
-                'audio' => $usage['input_tokens_details']['cached_tokens_details']['audio_tokens'] ?? 0,
+                'text' => $details['cached_tokens_details']['text_tokens'] ?? $cachedTokens,
+                'image' => $details['cached_tokens_details']['image_tokens'] ?? 0,
+                'audio' => $details['cached_tokens_details']['audio_tokens'] ?? 0,
             ],
+            cacheWriteInputTokens: $cacheWriteTokens,
         );
     }
 

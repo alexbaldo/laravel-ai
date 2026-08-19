@@ -11,14 +11,16 @@ use Laravel\Ai\Contracts\Gateway\TranscriptionGateway;
 use Laravel\Ai\Contracts\Providers\AudioProvider;
 use Laravel\Ai\Contracts\Providers\EmbeddingProvider;
 use Laravel\Ai\Contracts\Providers\ImageProvider;
+use Laravel\Ai\Contracts\Providers\SupportsWebFetch;
 use Laravel\Ai\Contracts\Providers\SupportsWebSearch;
 use Laravel\Ai\Contracts\Providers\TextProvider;
 use Laravel\Ai\Contracts\Providers\TranscriptionProvider;
 use Laravel\Ai\Enums\Lab;
 use Laravel\Ai\Gateway\OpenRouter\OpenRouterGateway;
+use Laravel\Ai\Providers\Tools\WebFetch;
 use Laravel\Ai\Providers\Tools\WebSearch;
 
-class OpenRouterProvider extends Provider implements AudioProvider, EmbeddingProvider, ImageProvider, SupportsWebSearch, TextProvider, TranscriptionProvider
+class OpenRouterProvider extends Provider implements AudioProvider, EmbeddingProvider, ImageProvider, SupportsWebFetch, SupportsWebSearch, TextProvider, TranscriptionProvider
 {
     use Concerns\GeneratesAudio;
     use Concerns\GeneratesEmbeddings;
@@ -38,19 +40,31 @@ class OpenRouterProvider extends Provider implements AudioProvider, EmbeddingPro
     }
 
     /**
+     * Get the web fetch tool options for the provider.
+     */
+    public function webFetchToolOptions(WebFetch $fetch): array
+    {
+        return $this->serverToolOptions($fetch);
+    }
+
+    /**
      * Get the web search tool options for the provider.
      */
     public function webSearchToolOptions(WebSearch $search): array
     {
-        $options = $search->providerOptions(Lab::OpenRouter);
+        return $this->serverToolOptions($search);
+    }
 
-        $parameters = array_filter([
-            'max_results' => $search->maxSearches,
-            'allowed_domains' => filled($search->allowedDomains) ? $search->allowedDomains : null,
-        ]) + $options;
-
+    /**
+     * Get the parameters for an OpenRouter server tool.
+     */
+    protected function serverToolOptions(WebFetch|WebSearch $tool): array
+    {
         return array_filter([
-            'parameters' => filled($parameters) ? $parameters : null,
+            'parameters' => array_filter([
+                'max_uses' => $tool->maxSearches,
+                'allowed_domains' => $tool->allowedDomains,
+            ]) + $tool->providerOptions(Lab::OpenRouter),
         ]);
     }
 
