@@ -55,7 +55,7 @@ trait HandlesTextStreaming
         $usage = null;
         $stopReason = '';
 
-        $emitTextStart = function () use (&$textStartEmitted, &$messageId, $invocationId): ?\Laravel\Ai\Streaming\Events\StreamEvent {
+        $emitTextStart = function () use (&$textStartEmitted, &$messageId, $invocationId): ?StreamEvent {
             if ($textStartEmitted) {
                 return null;
             }
@@ -69,7 +69,7 @@ trait HandlesTextStreaming
             ))->withInvocationId($invocationId);
         };
 
-        $emitReasoningStart = function () use (&$reasoningStartEmitted, &$reasoningId, $invocationId): ?\Laravel\Ai\Streaming\Events\StreamEvent {
+        $emitReasoningStart = function () use (&$reasoningStartEmitted, &$reasoningId, $invocationId): ?StreamEvent {
             if ($reasoningStartEmitted) {
                 return null;
             }
@@ -153,6 +153,7 @@ trait HandlesTextStreaming
                         $data['content_block'] ?? [],
                         'started',
                         time(),
+                        provider: $provider->name(),
                     ))->withInvocationId($invocationId);
                 } elseif ($this->isProviderToolResultBlock($blockType)) {
                     $fetchResult = $data['content_block']['content'] ?? [];
@@ -173,6 +174,7 @@ trait HandlesTextStreaming
                         $data['content_block'] ?? [],
                         'result_received',
                         time(),
+                        provider: $provider->name(),
                     ))->withInvocationId($invocationId);
                 }
 
@@ -310,6 +312,7 @@ trait HandlesTextStreaming
                         $responseContent[$index] ?? [],
                         'completed',
                         time(),
+                        provider: $provider->name(),
                     ))->withInvocationId($invocationId);
                 }
 

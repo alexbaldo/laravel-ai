@@ -99,7 +99,7 @@ test('audio uses default model when none specified', function (): void {
 
     Audio::of('Hello world')->voice('Kore')->generate(provider: 'gemini');
 
-    Http::assertSent(fn (Request $request): bool => str_contains($request->url(), 'models/gemini-2.5-flash-preview-tts:generateContent'));
+    Http::assertSent(fn (Request $request): bool => str_contains($request->url(), 'models/gemini-3.1-flash-tts-preview:generateContent'));
 });
 
 function fakeGeminiAudioResponse(string $pcm = "\x00\x00"): PromiseInterface
