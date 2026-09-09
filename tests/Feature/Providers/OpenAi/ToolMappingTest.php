@@ -2,7 +2,9 @@
 
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Laravel\Ai\Ai;
 use Laravel\Ai\Enums\Lab;
+use Laravel\Ai\Providers\Tools\ImageGeneration;
 use Laravel\Ai\Providers\Tools\WebSearch;
 use Tests\Fixtures\Tools\FixedNumberGenerator;
 use Tests\Fixtures\Tools\NamedTool;
@@ -277,4 +279,67 @@ test('web search tool omits user_location when no location set', function (): vo
 
         return ! array_key_exists('user_location', $tool);
     });
+});
+
+test('image generation tool sends type image_generation with model, size and quality', function (): void {
+    Http::fake([
+        '*' => fakeOpenAiResponse('result'),
+    ]);
+
+    agent(tools: [new ImageGeneration(model: 'gpt-image-2.5-flare', size: 'square')])
+        ->prompt('Illustrate the attached document', provider: 'openai');
+
+    Http::assertSent(function (Request $request): bool {
+        $body = json_decode($request->body(), true);
+        $tool = collect(data_get($body, 'tools'))->firstWhere('type', 'image_generation');
+
+        return $tool === [
+            'type' => 'image_generation',
+            'model' => 'gpt-image-2.5-flare',
+            'size' => '1024x1024',
+            'quality' => 'low',
+        ];
+    });
+});
+
+test('image generation tool maps square, vertical and horizontal to the confirmed pixel sizes', function (string $size, string $pixels): void {
+    Http::fake([
+        '*' => fakeOpenAiResponse('result'),
+    ]);
+
+    agent(tools: [new ImageGeneration(model: 'gpt-image-2.5-flare', size: $size)])
+        ->prompt('Illustrate the attached document', provider: 'openai');
+
+    Http::assertSent(function (Request $request) use ($pixels): bool {
+        $body = json_decode($request->body(), true);
+        $tool = collect(data_get($body, 'tools'))->firstWhere('type', 'image_generation');
+
+        return data_get($tool, 'size') === $pixels;
+    });
+})->with([
+    'square' => ['square', '1024x1024'],
+    'vertical' => ['vertical', '864x1536'],
+    'horizontal' => ['horizontal', '1536x864'],
+]);
+
+test('image generation tool always sends the lowest quality tier, regardless of the model', function (): void {
+    Http::fake([
+        '*' => fakeOpenAiResponse('result'),
+    ]);
+
+    agent(tools: [new ImageGeneration(model: 'gpt-image-2', size: 'square')])
+        ->prompt('Illustrate the attached document', provider: 'openai');
+
+    Http::assertSent(function (Request $request): bool {
+        $body = json_decode($request->body(), true);
+        $tool = collect(data_get($body, 'tools'))->firstWhere('type', 'image_generation');
+
+        return data_get($tool, 'quality') === 'low';
+    });
+});
+
+test('image generation tool throws for an aspect outside the reduced mapping', function (): void {
+    expect(fn () => Ai::textProvider('openai')->imageGenerationToolOptions(
+        new ImageGeneration(model: 'gpt-image-2.5-flare', size: '21:9')
+    ))->toThrow(InvalidArgumentException::class, 'Unsupported image generation aspect [21:9]');
 });

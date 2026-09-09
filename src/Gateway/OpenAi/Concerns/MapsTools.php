@@ -5,12 +5,14 @@ namespace Laravel\Ai\Gateway\OpenAi\Concerns;
 use Illuminate\JsonSchema\JsonSchemaTypeFactory;
 use Laravel\Ai\Attributes\Strict;
 use Laravel\Ai\Contracts\Providers\SupportsFileSearch;
+use Laravel\Ai\Contracts\Providers\SupportsImageGeneration;
 use Laravel\Ai\Contracts\Providers\SupportsWebSearch;
 use Laravel\Ai\Contracts\Tool;
 use Laravel\Ai\Enums\Lab;
 use Laravel\Ai\ObjectSchema;
 use Laravel\Ai\Providers\Provider;
 use Laravel\Ai\Providers\Tools\FileSearch;
+use Laravel\Ai\Providers\Tools\ImageGeneration;
 use Laravel\Ai\Providers\Tools\ProviderTool;
 use Laravel\Ai\Providers\Tools\ToolSearch;
 use Laravel\Ai\Providers\Tools\WebSearch;
@@ -105,6 +107,7 @@ trait MapsTools
     {
         return match (true) {
             $tool instanceof FileSearch => $this->mapFileSearchTool($tool, $provider),
+            $tool instanceof ImageGeneration => $this->mapImageGenerationTool($tool, $provider),
             $tool instanceof WebSearch => $this->mapWebSearchTool($tool, $provider),
             default => throw new RuntimeException('Provider ['.$provider->name().'] does not support the ['.class_basename($tool).'] tool.'),
         };
@@ -122,6 +125,21 @@ trait MapsTools
         return [
             'type' => 'file_search',
             ...$provider->fileSearchToolOptions($tool),
+        ];
+    }
+
+    /**
+     * Map an image generation tool to an OpenAI image generation definition.
+     */
+    protected function mapImageGenerationTool(ImageGeneration $tool, Provider $provider): array
+    {
+        if (! $provider instanceof SupportsImageGeneration) {
+            throw new RuntimeException('Provider ['.$provider->name().'] does not support image generation.');
+        }
+
+        return [
+            'type' => 'image_generation',
+            ...$provider->imageGenerationToolOptions($tool),
         ];
     }
 
