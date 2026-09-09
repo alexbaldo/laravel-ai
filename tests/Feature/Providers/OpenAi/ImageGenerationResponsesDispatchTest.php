@@ -190,6 +190,96 @@ test('a configured carrier model is used for the top-level responses call instea
     });
 });
 
+test('the input_file part carries the real filename and mime type of the attached document', function (): void {
+    Http::fake(['*' => fakeOpenAiResponsesGenerationResponse()]);
+
+    $file = makeUploadedDocxFile();
+
+    Image::of('Illustrate this document')
+        ->attachments([$file])
+        ->generate(provider: 'openai', model: 'gpt-image-1');
+
+    unlink($file->getPathname());
+
+    Http::assertSent(function (Request $request): bool {
+        $body = json_decode($request->body(), true);
+        $part = $body['input'][0]['content'][1];
+
+        return $part['type'] === 'input_file'
+            && $part['filename'] === 'brief.docx'
+            && str_starts_with(
+                $part['file_data'],
+                'data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,'
+            );
+    });
+});
+
+test('the tool quality is always the lowest tier, regardless of any quality requested on the call', function (?string $quality): void {
+    Http::fake(['*' => fakeOpenAiResponsesGenerationResponse()]);
+
+    $file = makeUploadedDocxFile();
+
+    Image::of('Illustrate this document')
+        ->attachments([$file])
+        ->when($quality !== null, fn ($pending) => $pending->quality($quality))
+        ->generate(provider: 'openai', model: 'gpt-image-1');
+
+    unlink($file->getPathname());
+
+    Http::assertSent(function (Request $request): bool {
+        $body = json_decode($request->body(), true);
+
+        return $body['tools'][0]['quality'] === 'low';
+    });
+})->with([
+    'no quality requested' => [null],
+    // generateImageViaResponses() never forwards $quality to the tool at
+    // all (§12.4: "the frontend doesn't ask for it"), so a caller-requested
+    // quality is silently ignored on this path rather than honored.
+    'a higher quality requested' => ['high'],
+]);
+
+test('the tool model defaults to the configured default image model when generate() is not given one', function (): void {
+    config(['ai.providers.openai' => [
+        ...config('ai.providers.openai'),
+        'models' => ['image' => ['default' => 'gpt-image-2.5-flare']],
+    ]]);
+
+    Http::fake(['*' => fakeOpenAiResponsesGenerationResponse()]);
+
+    $file = makeUploadedDocxFile();
+
+    Image::of('Illustrate this document')->attachments([$file])->generate(provider: 'openai');
+
+    unlink($file->getPathname());
+
+    Http::assertSent(function (Request $request): bool {
+        $body = json_decode($request->body(), true);
+
+        return $body['tools'][0]['model'] === 'gpt-image-2.5-flare';
+    });
+});
+
+test('the tool model falls back to the package default image model when neither the call nor the config specify one', function (): void {
+    Http::fake(['*' => fakeOpenAiResponsesGenerationResponse()]);
+
+    $file = makeUploadedDocxFile();
+
+    Image::of('Illustrate this document')->attachments([$file])->generate(provider: 'openai');
+
+    unlink($file->getPathname());
+
+    Http::assertSent(function (Request $request): bool {
+        $body = json_decode($request->body(), true);
+
+        // The package's own fallback (OpenAiProvider::defaultImageModel())
+        // is unrelated to gpt-image-2.5-flare, which ai-ai pins via its own
+        // config (GI-B1) -- this documents that boundary so the two
+        // defaults are never confused with one another.
+        return $body['tools'][0]['model'] === 'gpt-image-2';
+    });
+});
+
 test('an image-only attachment is unaffected by the new dispatch and still goes through images/edits', function (): void {
     Http::fake(['*' => Http::response([
         'data' => [['b64_json' => base64_encode('edited-image')]],
