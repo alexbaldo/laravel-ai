@@ -2,11 +2,111 @@
 
 namespace Laravel\Ai\Gateway\OpenAi\Concerns;
 
+use Illuminate\Http\UploadedFile;
+use Laravel\Ai\Contracts\Providers\ImageProvider;
 use Laravel\Ai\Exceptions\ImageGenerationFailedException;
+use Laravel\Ai\Files\Image;
+use Laravel\Ai\Providers\Tools\ImageGeneration;
 use Laravel\Ai\Responses\Data\GeneratedImage;
+use Laravel\Ai\Responses\Data\Meta;
+use Laravel\Ai\Responses\Data\Usage;
+use Laravel\Ai\Responses\ImageResponse;
 
 trait GeneratesImagesViaResponses
 {
+    /**
+     * Generate an image through the Responses API `image_generation` tool
+     * (GI-A1/GI-A2), for calls carrying at least one non-image attachment
+     * that the classic Images API cannot read (`OpenAiGateway::generateImage()`,
+     * GI-A3, is the only caller). Adapts the tool's output to an
+     * `ImageResponse`, the same return type the Images API paths produce,
+     * so the dispatch in `generateImage()` stays a plain `match`.
+     */
+    protected function generateImageViaResponses(
+        ImageProvider $provider,
+        string $model,
+        string $prompt,
+        array $attachments,
+        ?string $size,
+        ?int $timeout,
+    ): ImageResponse {
+        $data = $this->client($provider, $timeout ?? 120)->post('responses', [
+            'model' => $this->imageGenerationCarrierModel(),
+            'input' => [[
+                'role' => 'user',
+                'content' => [
+                    ['type' => 'input_text', 'text' => $prompt],
+                    ...$this->mapAttachments(collect($attachments), $provider),
+                ],
+            ]],
+            'tools' => $this->mapTools(
+                [new ImageGeneration($model, $this->imageGenerationAspectFromSize($size))],
+                $provider,
+            ),
+        ])->json();
+
+        return new ImageResponse(
+            collect([$this->extractGeneratedImageFromResponse($data['output'] ?? [])]),
+            // The carrier model's own token usage (`usage`) and the image
+            // tool's (`tool_usage.image_gen`) are both on this payload, but
+            // reading them is GI-A5's job, not this one -- left empty here
+            // on purpose rather than guessed at.
+            new Usage,
+            new Meta($provider->name(), $model),
+        );
+    }
+
+    /**
+     * Determine if at least one of the given attachments is not an image.
+     *
+     * Mirrors the classification `MapsAttachments::mapAttachments()` already
+     * makes for OpenAI content parts, so this is not a second, possibly
+     * diverging source of truth for "is this attachment an image": any
+     * `Image` subclass (`Base64Image`, `LocalImage`, `RemoteImage`, ...) is
+     * one by construction; a generic `UploadedFile` is classified by its
+     * MIME type via `MapsAttachments::isImage()`, the same helper the text
+     * path uses; anything else reaching here (a `Document` subclass, an
+     * `Audio`/`Video` attachment) is not an image.
+     *
+     * @param  array<int, mixed>  $attachments
+     */
+    protected function hasNonImageAttachment(array $attachments): bool
+    {
+        return collect($attachments)->contains(fn ($attachment): bool => match (true) {
+            $attachment instanceof Image => false,
+            $attachment instanceof UploadedFile => ! $this->isImage($attachment),
+            default => true,
+        });
+    }
+
+    /**
+     * Get the text model that carries the `image_generation` tool call
+     * through the Responses API.
+     *
+     * Hardcoded for now, per the spike (`gpt-5.4-nano`): GI-A4 makes this
+     * configurable and pinned instead of a literal buried in the gateway.
+     */
+    protected function imageGenerationCarrierModel(): string
+    {
+        return 'gpt-5.4-nano';
+    }
+
+    /**
+     * Map `generateImage()`'s legacy Images API aspect (`'1:1'`, `'2:3'`,
+     * `'3:2'`, or `null`) to the `image_generation` tool's own vocabulary:
+     * `ImageGeneration` (GI-A1) only accepts `'square'`, `'vertical'` and
+     * `'horizontal'`. `'1:1'`, an unrecognized value, and no size at all
+     * all fall back to `'square'`.
+     */
+    protected function imageGenerationAspectFromSize(?string $size): string
+    {
+        return match ($size) {
+            '2:3' => 'vertical',
+            '3:2' => 'horizontal',
+            default => 'square',
+        };
+    }
+
     /**
      * Extract the generated image from a Responses API `output` array.
      *

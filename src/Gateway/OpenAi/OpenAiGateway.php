@@ -3,6 +3,7 @@
 namespace Laravel\Ai\Gateway\OpenAi;
 
 use Illuminate\Contracts\Events\Dispatcher;
+use Illuminate\Http\Client\Response;
 use Illuminate\Http\UploadedFile;
 use InvalidArgumentException;
 use Laravel\Ai\Contracts\Files\StorableFile;
@@ -31,6 +32,7 @@ class OpenAiGateway implements Gateway, StepTextGateway
 {
     use Concerns\BuildsTextRequests;
     use Concerns\CreatesOpenAiClient;
+    use Concerns\GeneratesImagesViaResponses;
     use Concerns\HandlesTextGeneration;
     use Concerns\HandlesTextSteps;
     use Concerns\MapsAttachments;
@@ -62,15 +64,34 @@ class OpenAiGateway implements Gateway, StepTextGateway
         ?string $quality = null,
         ?int $timeout = null,
     ): ImageResponse {
-        $hasAttachments = filled($attachments);
-
-        $response = $this->withErrorHandling(
+        return $this->withErrorHandling(
             $provider->name(),
-            fn () => $hasAttachments
-                ? $this->sendImageEditRequest($provider, $model, $prompt, $attachments, $size, $quality, $timeout)
-                : $this->sendImageGenerationRequest($provider, $model, $prompt, $size, $quality, $timeout),
+            fn (): ImageResponse => match (true) {
+                // At least one non-image attachment: the Images API cannot
+                // read documents, but the Responses API `image_generation`
+                // tool (GI-A1/GI-A2) can. R2: the two branches below this
+                // one are untouched, so this is the only new branch (GI-A3).
+                $this->hasNonImageAttachment($attachments) => $this->generateImageViaResponses(
+                    $provider, $model, $prompt, $attachments, $size, $timeout,
+                ),
+                filled($attachments) => $this->buildImageResponse(
+                    $this->sendImageEditRequest($provider, $model, $prompt, $attachments, $size, $quality, $timeout),
+                    $provider, $model,
+                ),
+                default => $this->buildImageResponse(
+                    $this->sendImageGenerationRequest($provider, $model, $prompt, $size, $quality, $timeout),
+                    $provider, $model,
+                ),
+            },
         );
+    }
 
+    /**
+     * Build an `ImageResponse` from a classic Images API response
+     * (`images/generations` or `images/edits`).
+     */
+    protected function buildImageResponse(Response $response, ImageProvider $provider, string $model): ImageResponse
+    {
         $data = $response->json();
 
         return new ImageResponse(
