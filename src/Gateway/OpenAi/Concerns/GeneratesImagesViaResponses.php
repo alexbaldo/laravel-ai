@@ -53,13 +53,60 @@ trait GeneratesImagesViaResponses
 
         return new ImageResponse(
             collect([$this->extractGeneratedImageFromResponse($data['output'] ?? [])]),
-            // The carrier model's own token usage (`usage`) and the image
-            // tool's (`tool_usage.image_gen`) are both on this payload, but
-            // reading them is GI-A5's job, not this one -- left empty here
-            // on purpose rather than guessed at.
-            new Usage,
-            new Meta($provider->name(), $model),
+            $this->extractImageUsage($data, viaResponses: true),
+            new Meta($provider->name(), $model, carrierModel: $provider->imageGenerationCarrierModel()),
         );
+    }
+
+    /**
+     * Extract usage from a Responses API response for the `image_generation`
+     * tool path (GI-A5). The two models billed by one call
+     * (`imageGenerationCarrierModel()`, GI-A4) report their usage in two
+     * sibling fields of the same payload:
+     *
+     * - The carrier model's own usage is the top-level `usage` field, in
+     *   exactly the shape any other Responses API call reports it, so it is
+     *   read with `ParsesTextResponses::extractUsage()` (mixed into
+     *   `OpenAiGateway` alongside this trait) instead of a second
+     *   implementation of the same parsing.
+     * - The image tool's own usage is `tool_usage.image_gen`, kept in
+     *   `Usage::$toolsTokens` rather than merged into the carrier's
+     *   `inputTokens`/`outputTokens` buckets: the two are billed at
+     *   different rates by two different models (`Meta::$model` is the
+     *   image model, `Meta::$carrierModel` the carrier -- both set by the
+     *   caller), and collapsing them into one bucket would make it
+     *   impossible for a consumer (`CostHelper` in ai-ai, GI-B4) to price
+     *   each tramo at its own model's rate. `output_tokens_details.image_tokens`
+     *   is the tool's image output; `input_tokens_details.text_tokens` is
+     *   the tool's own text input -- not the carrier's, which is already
+     *   accounted for by `extractUsage()` above. Both directions are added
+     *   per modality (there is no observed case, across the 21 real calls
+     *   behind this branch, of a modality appearing on both sides at once).
+     *
+     * A response missing `tool_usage.image_gen` entirely is not a shape
+     * OpenAI documents or that the spike ever produced: treating it as zero
+     * image tokens would silently under-bill a completed generation, so
+     * this throws instead of defaulting to 0 -- the gap has to reach ai-ai
+     * as a failure it can see, not a suspiciously cheap image.
+     *
+     * @throws ImageGenerationFailedException
+     */
+    protected function extractResponsesImageUsage(array $data): Usage
+    {
+        $toolUsage = $data['tool_usage']['image_gen'] ?? null;
+
+        if ($toolUsage === null) {
+            throw ImageGenerationFailedException::forMissingToolUsage();
+        }
+
+        return $this->extractUsage($data)->add(new Usage(
+            toolsTokens: [
+                'text' => ($toolUsage['input_tokens_details']['text_tokens'] ?? 0)
+                    + ($toolUsage['output_tokens_details']['text_tokens'] ?? 0),
+                'image' => ($toolUsage['input_tokens_details']['image_tokens'] ?? 0)
+                    + ($toolUsage['output_tokens_details']['image_tokens'] ?? 0),
+            ],
+        ));
     }
 
     /**

@@ -32,6 +32,18 @@ function fakeOpenAiResponsesGenerationResponse(): PromiseInterface
             'output_format' => 'png',
             'result' => base64_encode('doc-generated-image'),
         ]],
+        // GI-A5 requires this field to build the Usage for this path (a
+        // completed call with no tool_usage.image_gen throws rather than
+        // costing $0), so it belongs on the fixture even though these
+        // tests are about dispatch, not usage -- ImageGenerationResponsesUsageTest.php
+        // covers the numbers.
+        'usage' => ['input_tokens' => 2535, 'output_tokens' => 185],
+        'tool_usage' => ['image_gen' => [
+            'input_tokens' => 172,
+            'input_tokens_details' => ['image_tokens' => 0, 'text_tokens' => 172],
+            'output_tokens' => 1372,
+            'output_tokens_details' => ['image_tokens' => 1372, 'text_tokens' => 0],
+        ]],
     ]);
 }
 

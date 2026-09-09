@@ -39,6 +39,15 @@ function fakeOpenAiResponsesImageGenerationResponse(): PromiseInterface
             'output_format' => 'png',
             'result' => base64_encode('generated-image'),
         ]],
+        // GI-A5 requires this field to build the Usage for this path; see
+        // ImageGenerationResponsesUsageTest.php for the numbers themselves.
+        'usage' => ['input_tokens' => 2535, 'output_tokens' => 185],
+        'tool_usage' => ['image_gen' => [
+            'input_tokens' => 172,
+            'input_tokens_details' => ['image_tokens' => 0, 'text_tokens' => 172],
+            'output_tokens' => 1372,
+            'output_tokens_details' => ['image_tokens' => 1372, 'text_tokens' => 0],
+        ]],
     ]);
 }
 
