@@ -56,6 +56,11 @@ function openAiProviderWithImageGeneration(): Provider
                 'quality' => 'low',
             ];
         }
+
+        public function imageGenerationCarrierModel(): string
+        {
+            return 'gpt-5.4-nano';
+        }
     };
 }
 

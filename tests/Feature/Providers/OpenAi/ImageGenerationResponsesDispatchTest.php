@@ -132,6 +132,52 @@ test('the vertical and horizontal aspect hints reach the image_generation tool, 
     '3:2' => ['3:2', 'horizontal'],
 ]);
 
+test('the carrier model defaults to gpt-5.4-nano when none is configured', function (): void {
+    Http::fake(['*' => fakeOpenAiResponsesGenerationResponse()]);
+
+    $file = makeUploadedDocxFile();
+
+    Image::of('Illustrate this document')
+        ->attachments([$file])
+        ->generate(provider: 'openai', model: 'gpt-image-1');
+
+    unlink($file->getPathname());
+
+    Http::assertSent(function (Request $request): bool {
+        $body = json_decode($request->body(), true);
+
+        return str_ends_with($request->url(), 'responses')
+            && $body['model'] === 'gpt-5.4-nano';
+    });
+});
+
+test('a configured carrier model is used for the top-level responses call instead of the default', function (): void {
+    config(['ai.providers.openai' => [
+        ...config('ai.providers.openai'),
+        'models' => ['image' => ['carrier' => 'gpt-5.9-configured']],
+    ]]);
+
+    Http::fake(['*' => fakeOpenAiResponsesGenerationResponse()]);
+
+    $file = makeUploadedDocxFile();
+
+    Image::of('Illustrate this document')
+        ->attachments([$file])
+        ->generate(provider: 'openai', model: 'gpt-image-1');
+
+    unlink($file->getPathname());
+
+    Http::assertSent(function (Request $request): bool {
+        $body = json_decode($request->body(), true);
+
+        return str_ends_with($request->url(), 'responses')
+            && $body['model'] === 'gpt-5.9-configured'
+            // The image model passed to the tool is unaffected by the
+            // carrier model override -- they are two independent models.
+            && $body['tools'][0]['model'] === 'gpt-image-1';
+    });
+});
+
 test('an image-only attachment is unaffected by the new dispatch and still goes through images/edits', function (): void {
     Http::fake(['*' => Http::response([
         'data' => [['b64_json' => base64_encode('edited-image')]],

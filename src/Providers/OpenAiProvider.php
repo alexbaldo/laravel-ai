@@ -163,6 +163,22 @@ class OpenAiProvider extends Provider implements AudioProvider, EmbeddingProvide
     }
 
     /**
+     * Get the name of the text model that carries the `image_generation`
+     * tool call through the Responses API (`GeneratesImagesViaResponses`,
+     * used for image generation from non-image attachments).
+     *
+     * This carrier model only reads the prompt/document and decides to
+     * invoke the `image_generation` tool -- it does not draw the image
+     * itself. Generating one image through this path therefore bills
+     * *two* models, not one: this carrier, plus the image model passed to
+     * the tool.
+     */
+    public function imageGenerationCarrierModel(): string
+    {
+        return $this->config['models']['image']['carrier'] ?? 'gpt-5.4-nano';
+    }
+
+    /**
      * Get the default / normalized image options for the provider.
      */
     public function defaultImageOptions(?string $size = null, ?string $quality = null): array

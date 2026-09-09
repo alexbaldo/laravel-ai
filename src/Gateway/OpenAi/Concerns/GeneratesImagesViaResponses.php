@@ -4,6 +4,7 @@ namespace Laravel\Ai\Gateway\OpenAi\Concerns;
 
 use Illuminate\Http\UploadedFile;
 use Laravel\Ai\Contracts\Providers\ImageProvider;
+use Laravel\Ai\Contracts\Providers\SupportsImageGeneration;
 use Laravel\Ai\Exceptions\ImageGenerationFailedException;
 use Laravel\Ai\Files\Image;
 use Laravel\Ai\Providers\Tools\ImageGeneration;
@@ -11,6 +12,7 @@ use Laravel\Ai\Responses\Data\GeneratedImage;
 use Laravel\Ai\Responses\Data\Meta;
 use Laravel\Ai\Responses\Data\Usage;
 use Laravel\Ai\Responses\ImageResponse;
+use RuntimeException;
 
 trait GeneratesImagesViaResponses
 {
@@ -30,8 +32,12 @@ trait GeneratesImagesViaResponses
         ?string $size,
         ?int $timeout,
     ): ImageResponse {
+        if (! $provider instanceof SupportsImageGeneration) {
+            throw new RuntimeException('Provider ['.$provider->name().'] does not support image generation.');
+        }
+
         $data = $this->client($provider, $timeout ?? 120)->post('responses', [
-            'model' => $this->imageGenerationCarrierModel(),
+            'model' => $provider->imageGenerationCarrierModel(),
             'input' => [[
                 'role' => 'user',
                 'content' => [
@@ -77,18 +83,6 @@ trait GeneratesImagesViaResponses
             $attachment instanceof UploadedFile => ! $this->isImage($attachment),
             default => true,
         });
-    }
-
-    /**
-     * Get the text model that carries the `image_generation` tool call
-     * through the Responses API.
-     *
-     * Hardcoded for now, per the spike (`gpt-5.4-nano`): GI-A4 makes this
-     * configurable and pinned instead of a literal buried in the gateway.
-     */
-    protected function imageGenerationCarrierModel(): string
-    {
-        return 'gpt-5.4-nano';
     }
 
     /**
