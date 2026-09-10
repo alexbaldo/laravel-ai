@@ -281,7 +281,7 @@ test('web search tool omits user_location when no location set', function (): vo
     });
 });
 
-test('image generation tool sends type image_generation with model, size and quality', function (): void {
+test('image generation tool sends type image_generation with model and size', function (): void {
     Http::fake([
         '*' => fakeOpenAiResponse('result'),
     ]);
@@ -297,7 +297,6 @@ test('image generation tool sends type image_generation with model, size and qua
             'type' => 'image_generation',
             'model' => 'gpt-image-2.5-flare',
             'size' => '1024x1024',
-            'quality' => 'low',
         ];
     });
 });
@@ -322,7 +321,7 @@ test('image generation tool maps square, vertical and horizontal to the confirme
     'horizontal' => ['horizontal', '1536x864'],
 ]);
 
-test('image generation tool always sends the lowest quality tier, regardless of the model', function (): void {
+test('image generation tool omits quality when none is requested, regardless of the model', function (): void {
     Http::fake([
         '*' => fakeOpenAiResponse('result'),
     ]);
@@ -334,11 +333,11 @@ test('image generation tool always sends the lowest quality tier, regardless of 
         $body = json_decode($request->body(), true);
         $tool = collect(data_get($body, 'tools'))->firstWhere('type', 'image_generation');
 
-        return data_get($tool, 'quality') === 'low';
+        return ! array_key_exists('quality', $tool);
     });
 });
 
-test('image generation tool sends a caller-requested quality instead of the lowest tier', function (string $quality): void {
+test('image generation tool sends a caller-requested quality as-is', function (string $quality): void {
     Http::fake([
         '*' => fakeOpenAiResponse('result'),
     ]);

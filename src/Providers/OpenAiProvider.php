@@ -96,16 +96,20 @@ class OpenAiProvider extends Provider implements AudioProvider, EmbeddingProvide
      * unmapped until a caller needs them (see `ImageGeneration`).
      *
      * `quality` respects the caller-supplied `ImageGeneration::$quality` when
-     * given; otherwise it falls back to the lowest tier every current
-     * `gpt-image*` model supports.
+     * given. This provider has no opinion on what to do otherwise -- the
+     * `quality` key is simply omitted, so the `image_generation` tool falls
+     * back to whatever OpenAI's own API default is (currently `'auto'`).
+     * Picking a concrete default when the caller doesn't ask for one is a
+     * business decision that belongs to the consuming application, not this
+     * package.
      */
     public function imageGenerationToolOptions(ImageGeneration $generation): array
     {
-        return [
+        return array_filter([
             'model' => $generation->model,
             'size' => $this->imageGenerationSize($generation->size),
-            'quality' => $generation->quality ?? $this->lowestImageGenerationQuality(),
-        ];
+            'quality' => $generation->quality,
+        ], fn (?string $value): bool => $value !== null);
     }
 
     /**
@@ -125,8 +129,11 @@ class OpenAiProvider extends Provider implements AudioProvider, EmbeddingProvide
 
     /**
      * Get the lowest image quality tier the active image generation model supports.
+     *
+     * Not applied automatically by `imageGenerationToolOptions()` -- kept as a
+     * public utility for a consumer that wants to explicitly request it.
      */
-    protected function lowestImageGenerationQuality(): string
+    public function lowestImageGenerationQuality(): string
     {
         return 'low';
     }
