@@ -3,6 +3,7 @@
 namespace Laravel\Ai\Providers;
 
 use Illuminate\Support\Collection;
+use InvalidArgumentException;
 use Laravel\Ai\Contracts\Gateway\FileGateway;
 use Laravel\Ai\Contracts\Gateway\StoreGateway;
 use Laravel\Ai\Contracts\Providers\AudioProvider;
@@ -11,6 +12,7 @@ use Laravel\Ai\Contracts\Providers\FileProvider;
 use Laravel\Ai\Contracts\Providers\ImageProvider;
 use Laravel\Ai\Contracts\Providers\StoreProvider;
 use Laravel\Ai\Contracts\Providers\SupportsFileSearch;
+use Laravel\Ai\Contracts\Providers\SupportsImageGeneration;
 use Laravel\Ai\Contracts\Providers\SupportsToolSearch;
 use Laravel\Ai\Contracts\Providers\SupportsWebSearch;
 use Laravel\Ai\Contracts\Providers\TextProvider;
@@ -19,9 +21,10 @@ use Laravel\Ai\Enums\Lab;
 use Laravel\Ai\Gateway\OpenAi\OpenAiFileGateway;
 use Laravel\Ai\Gateway\OpenAi\OpenAiStoreGateway;
 use Laravel\Ai\Providers\Tools\FileSearch;
+use Laravel\Ai\Providers\Tools\ImageGeneration;
 use Laravel\Ai\Providers\Tools\WebSearch;
 
-class OpenAiProvider extends Provider implements AudioProvider, EmbeddingProvider, FileProvider, ImageProvider, StoreProvider, SupportsFileSearch, SupportsToolSearch, SupportsWebSearch, TextProvider, TranscriptionProvider
+class OpenAiProvider extends Provider implements AudioProvider, EmbeddingProvider, FileProvider, ImageProvider, StoreProvider, SupportsFileSearch, SupportsImageGeneration, SupportsToolSearch, SupportsWebSearch, TextProvider, TranscriptionProvider
 {
     use Concerns\GeneratesAudio;
     use Concerns\GeneratesEmbeddings;
@@ -85,6 +88,49 @@ class OpenAiProvider extends Provider implements AudioProvider, EmbeddingProvide
     }
 
     /**
+     * Get the image generation tool options for the provider.
+     *
+     * Only the three aspect hints the AInara frontend sends today are mapped
+     * (`square`/`vertical`/`horizontal` -> `size` in pixels); the remaining
+     * 11 ratios `GenerateImage::size()` exposes in `ai-ai` are intentionally
+     * unmapped until a caller needs them (see `ImageGeneration`).
+     *
+     * `quality` is not caller-configurable yet: it is fixed to the lowest
+     * tier every current `gpt-image*` model supports.
+     */
+    public function imageGenerationToolOptions(ImageGeneration $generation): array
+    {
+        return [
+            'model' => $generation->model,
+            'size' => $this->imageGenerationSize($generation->size),
+            'quality' => $this->lowestImageGenerationQuality(),
+        ];
+    }
+
+    /**
+     * Map the tool's provider-agnostic aspect hint to OpenAI's pixel size.
+     */
+    protected function imageGenerationSize(string $size): string
+    {
+        return match ($size) {
+            'square' => '1024x1024',
+            'vertical' => '864x1536',
+            'horizontal' => '1536x864',
+            default => throw new InvalidArgumentException(
+                "Unsupported image generation aspect [{$size}]. Only 'square', 'vertical' and 'horizontal' are mapped today."
+            ),
+        };
+    }
+
+    /**
+     * Get the lowest image quality tier the active image generation model supports.
+     */
+    protected function lowestImageGenerationQuality(): string
+    {
+        return 'low';
+    }
+
+    /**
      * Get the name of the default text model.
      */
     public function defaultTextModel(): string
@@ -114,6 +160,22 @@ class OpenAiProvider extends Provider implements AudioProvider, EmbeddingProvide
     public function defaultImageModel(): string
     {
         return $this->config['models']['image']['default'] ?? 'gpt-image-2';
+    }
+
+    /**
+     * Get the name of the text model that carries the `image_generation`
+     * tool call through the Responses API (`GeneratesImagesViaResponses`,
+     * used for image generation from non-image attachments).
+     *
+     * This carrier model only reads the prompt/document and decides to
+     * invoke the `image_generation` tool -- it does not draw the image
+     * itself. Generating one image through this path therefore bills
+     * *two* models, not one: this carrier, plus the image model passed to
+     * the tool.
+     */
+    public function imageGenerationCarrierModel(): string
+    {
+        return $this->config['models']['image']['carrier'] ?? 'gpt-5.4-nano';
     }
 
     /**

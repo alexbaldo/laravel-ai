@@ -2,7 +2,9 @@
 
 use Illuminate\Contracts\Filesystem\Factory as FilesystemFactory;
 use Illuminate\Contracts\Filesystem\Filesystem;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Ai\Enums\Lab;
@@ -258,4 +260,74 @@ test('queued image size and quality are recorded', function (): void {
     Image::assertQueued(fn (QueuedImagePrompt $prompt): bool => $prompt->prompt === 'A sunset'
         && $prompt->size === '3:2'
         && $prompt->quality === 'low');
+});
+
+/**
+ * GI-Q3: real generations with a non-image attachment (a `.docx`, say) are
+ * dispatched to a different endpoint than image-only or attachment-less
+ * calls (`OpenAiGateway::generateImage()`'s dispatch, GI-A3). The fake must
+ * keep intercepting regardless -- `Image::fake()`/`Ai::fake()` swaps the
+ * whole `ImageGateway` on the provider (`AiManager::fakeableImageProvider()`)
+ * *before* that dispatch decision is ever made, so `FakeImageGateway` never
+ * has to know which real endpoint a given call would have hit. These tests
+ * exist to lock that in, since it is exactly the contract `ai-ai` needs to
+ * test `GenerateImage` with document attachments without a real network call.
+ */
+function makeFakeDocxAttachmentForImageFakeTest(): UploadedFile
+{
+    $path = tempnam(sys_get_temp_dir(), 'ai').'.docx';
+    file_put_contents($path, 'docx-bytes');
+
+    return new UploadedFile(
+        $path,
+        'brief.docx',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        null,
+        true,
+    );
+}
+
+test('images with a non-image document attachment are faked without any network call', function (): void {
+    Http::preventStrayRequests();
+
+    Image::fake([base64_encode('document-illustration')]);
+
+    $file = makeFakeDocxAttachmentForImageFakeTest();
+
+    $response = Image::of('Illustrate this document')
+        ->attachments([$file])
+        ->generate(provider: 'openai', model: 'gpt-image-1');
+
+    unlink($file->getPathname());
+
+    expect($response->firstImage()->image)->toEqual(base64_encode('document-illustration'));
+
+    Image::assertGenerated(fn (ImagePrompt $prompt): bool => $prompt->prompt === 'Illustrate this document'
+        && $prompt->attachments->first() === $file);
+
+    Http::assertNothingSent();
+});
+
+test('the same fake queue serves an image-only call and a document-attachment call the same way', function (): void {
+    Http::preventStrayRequests();
+
+    Image::fake([
+        base64_encode('no-attachment-image'),
+        base64_encode('document-attachment-image'),
+    ]);
+
+    $withoutAttachments = Image::of('A red apple')->generate(provider: 'openai', model: 'gpt-image-1');
+
+    $file = makeFakeDocxAttachmentForImageFakeTest();
+
+    $withDocument = Image::of('Illustrate this document')
+        ->attachments([$file])
+        ->generate(provider: 'openai', model: 'gpt-image-1');
+
+    unlink($file->getPathname());
+
+    expect($withoutAttachments->firstImage()->image)->toEqual(base64_encode('no-attachment-image'))
+        ->and($withDocument->firstImage()->image)->toEqual(base64_encode('document-attachment-image'));
+
+    Http::assertNothingSent();
 });

@@ -13,11 +13,20 @@ class Meta implements Arrayable, JsonSerializable
 
     /**
      * @param  Collection<int, Citation>|null  $citations
+     * @param  string|null  $carrierModel  The text model that carried an
+     *                                     `image_generation` tool call through the Responses API
+     *                                     (`GeneratesImagesViaResponses`, GI-A4/GI-A5), when `$model`
+     *                                     is the image model rather than the model that produced this
+     *                                     response directly. `null` for every other response type,
+     *                                     including a classic-Images-API-generated image, where a
+     *                                     single model made the whole call and there is no second
+     *                                     tramo of cost to attribute.
      */
     public function __construct(
         public ?string $provider = null,
         public ?string $model = null,
         ?Collection $citations = null,
+        public ?string $carrierModel = null,
     ) {
         $this->citations = $citations ?? new Collection;
     }
@@ -33,6 +42,7 @@ class Meta implements Arrayable, JsonSerializable
             'citations' => $this->citations
                 ? $this->citations->all()
                 : [],
+            'carrier_model' => $this->carrierModel,
         ];
     }
 

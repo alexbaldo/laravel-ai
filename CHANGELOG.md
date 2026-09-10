@@ -2,6 +2,20 @@
 
 ## [Unreleased](https://github.com/laravel/ai/compare/v0.11.2...0.x)
 
+## [v0.12.0](https://github.com/alexbaldo/laravel-ai/compare/v0.11.3...v0.12.0) - 2026-09-10
+
+Fork feature: `OpenAiGateway::generateImage()` resolves non-image document attachments through the Responses API instead of failing.
+
+### Added
+
+- `generateImage()` no longer fails when a call carries a non-image attachment (a PDF, DOCX, etc.) alongside the prompt. It is now dispatched through the Responses API `image_generation` tool, which can read the document and produce the image, instead of the classic Images API, which cannot see the attachment at all. Image-only and attachment-less calls are unaffected and keep using the classic Images API.
+- The Responses API path reads `tool_usage.image_gen` from the response to build the image's `Usage`/cost -- a field the classic Images API path never had to read, since the Images API bills a single model per call. The new path bills two models per call (a configurable "carrier" model that reads the document, plus the image model itself): the carrier's usage comes from the ordinary top-level `usage` field, while the tool's own tokens are kept in `Usage::$toolsTokens` so a consumer can price each tramo at its own model's rate instead of collapsing both into one bucket.
+
+### Notes
+
+- Chain GI-A1..GI-A6: the `ImageGeneration` provider tool, `image_generation_call` parsing, the `generateImage()` dispatch, the configurable/pinned carrier model, dual-model usage accounting, and offline/fake/integration test coverage.
+- A response missing `tool_usage.image_gen` throws (`ImageGenerationFailedException::forMissingToolUsage()`) rather than silently billing zero image tokens.
+
 ## [v0.11.3](https://github.com/alexbaldo/laravel-ai/compare/v0.11.0...v0.11.3) - 2026-09-08
 
 Fork release: merges laravel/ai v0.11.1 and v0.11.2 into the fork.
