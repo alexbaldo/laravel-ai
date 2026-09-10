@@ -20,14 +20,17 @@ class ImageGeneration extends ProviderTool
      * ratios in total; mapping the rest is intentionally out of scope until
      * a caller needs them.
      *
-     * `quality` is deliberately not a constructor argument: it is not yet
-     * exposed as caller-configurable, and each provider's mapping fixes it
-     * to the lowest tier its active model supports.
+     * `quality` is an optional caller-supplied override, mirroring `model`
+     * and `size`: when omitted, each provider's mapping falls back to the
+     * lowest tier its active model supports (see
+     * `OpenAiProvider::lowestImageGenerationQuality()`).
      *
      * @param  'square'|'vertical'|'horizontal'  $size
+     * @param  'low'|'medium'|'high'|null  $quality
      */
     public function __construct(
         public string $model,
         public string $size,
+        public ?string $quality = null,
     ) {}
 }

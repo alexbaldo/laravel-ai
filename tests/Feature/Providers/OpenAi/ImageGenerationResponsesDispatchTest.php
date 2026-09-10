@@ -214,14 +214,13 @@ test('the input_file part carries the real filename and mime type of the attache
     });
 });
 
-test('the tool quality is always the lowest tier, regardless of any quality requested on the call', function (?string $quality): void {
+test('the tool quality falls back to the lowest tier when no quality is requested', function (): void {
     Http::fake(['*' => fakeOpenAiResponsesGenerationResponse()]);
 
     $file = makeUploadedDocxFile();
 
     Image::of('Illustrate this document')
         ->attachments([$file])
-        ->when($quality !== null, fn ($pending) => $pending->quality($quality))
         ->generate(provider: 'openai', model: 'gpt-image-1');
 
     unlink($file->getPathname());
@@ -231,12 +230,28 @@ test('the tool quality is always the lowest tier, regardless of any quality requ
 
         return $body['tools'][0]['quality'] === 'low';
     });
+});
+
+test('the tool quality honors a caller-requested quality', function (string $quality): void {
+    Http::fake(['*' => fakeOpenAiResponsesGenerationResponse()]);
+
+    $file = makeUploadedDocxFile();
+
+    Image::of('Illustrate this document')
+        ->attachments([$file])
+        ->quality($quality)
+        ->generate(provider: 'openai', model: 'gpt-image-1');
+
+    unlink($file->getPathname());
+
+    Http::assertSent(function (Request $request) use ($quality): bool {
+        $body = json_decode($request->body(), true);
+
+        return $body['tools'][0]['quality'] === $quality;
+    });
 })->with([
-    'no quality requested' => [null],
-    // generateImageViaResponses() never forwards $quality to the tool at
-    // all (§12.4: "the frontend doesn't ask for it"), so a caller-requested
-    // quality is silently ignored on this path rather than honored.
-    'a higher quality requested' => ['high'],
+    'medium' => ['medium'],
+    'high' => ['high'],
 ]);
 
 test('the tool model defaults to the configured default image model when generate() is not given one', function (): void {

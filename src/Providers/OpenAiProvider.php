@@ -95,15 +95,16 @@ class OpenAiProvider extends Provider implements AudioProvider, EmbeddingProvide
      * 11 ratios `GenerateImage::size()` exposes in `ai-ai` are intentionally
      * unmapped until a caller needs them (see `ImageGeneration`).
      *
-     * `quality` is not caller-configurable yet: it is fixed to the lowest
-     * tier every current `gpt-image*` model supports.
+     * `quality` respects the caller-supplied `ImageGeneration::$quality` when
+     * given; otherwise it falls back to the lowest tier every current
+     * `gpt-image*` model supports.
      */
     public function imageGenerationToolOptions(ImageGeneration $generation): array
     {
         return [
             'model' => $generation->model,
             'size' => $this->imageGenerationSize($generation->size),
-            'quality' => $this->lowestImageGenerationQuality(),
+            'quality' => $generation->quality ?? $this->lowestImageGenerationQuality(),
         ];
     }
 

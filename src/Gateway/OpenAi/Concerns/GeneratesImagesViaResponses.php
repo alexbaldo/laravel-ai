@@ -30,6 +30,7 @@ trait GeneratesImagesViaResponses
         string $prompt,
         array $attachments,
         ?string $size,
+        ?string $quality,
         ?int $timeout,
     ): ImageResponse {
         if (! $provider instanceof SupportsImageGeneration) {
@@ -46,7 +47,7 @@ trait GeneratesImagesViaResponses
                 ],
             ]],
             'tools' => $this->mapTools(
-                [new ImageGeneration($model, $this->imageGenerationAspectFromSize($size))],
+                [new ImageGeneration($model, $this->imageGenerationAspectFromSize($size), $quality)],
                 $provider,
             ),
         ])->json();

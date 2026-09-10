@@ -72,7 +72,7 @@ class OpenAiGateway implements Gateway, StepTextGateway
                 // tool (GI-A1/GI-A2) can. R2: the two branches below this
                 // one are untouched, so this is the only new branch (GI-A3).
                 $this->hasNonImageAttachment($attachments) => $this->generateImageViaResponses(
-                    $provider, $model, $prompt, $attachments, $size, $timeout,
+                    $provider, $model, $prompt, $attachments, $size, $quality, $timeout,
                 ),
                 filled($attachments) => $this->buildImageResponse(
                     $this->sendImageEditRequest($provider, $model, $prompt, $attachments, $size, $quality, $timeout),

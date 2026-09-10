@@ -338,6 +338,25 @@ test('image generation tool always sends the lowest quality tier, regardless of 
     });
 });
 
+test('image generation tool sends a caller-requested quality instead of the lowest tier', function (string $quality): void {
+    Http::fake([
+        '*' => fakeOpenAiResponse('result'),
+    ]);
+
+    agent(tools: [new ImageGeneration(model: 'gpt-image-2', size: 'square', quality: $quality)])
+        ->prompt('Illustrate the attached document', provider: 'openai');
+
+    Http::assertSent(function (Request $request) use ($quality): bool {
+        $body = json_decode($request->body(), true);
+        $tool = collect(data_get($body, 'tools'))->firstWhere('type', 'image_generation');
+
+        return data_get($tool, 'quality') === $quality;
+    });
+})->with([
+    'medium' => ['medium'],
+    'high' => ['high'],
+]);
+
 test('image generation tool throws for an aspect outside the reduced mapping', function (): void {
     expect(fn () => Ai::textProvider('openai')->imageGenerationToolOptions(
         new ImageGeneration(model: 'gpt-image-2.5-flare', size: '21:9')
