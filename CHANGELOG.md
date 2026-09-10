@@ -2,6 +2,16 @@
 
 ## [Unreleased](https://github.com/laravel/ai/compare/v0.11.2...0.x)
 
+## [v0.12.3](https://github.com/alexbaldo/laravel-ai/compare/v0.12.2...v0.12.3) - 2026-09-10
+
+Fork feature (ADR-0007 / GI-Q8): the Responses API `image_generation` tool now accepts a caller-supplied `moderation`, closing the gap with the classic Images API path -- which already injects `moderation: 'low'` for `gpt-image*` models on its own.
+
+### Added
+
+- `Laravel\Ai\Providers\Tools\ImageGeneration` gained an optional `?string $moderation` constructor argument, mirroring `quality`. `OpenAiProvider::imageGenerationToolOptions()` includes it in the `image_generation` tool only when given, following the same `array_filter` pattern `quality` uses (v0.12.2): the package imposes no default of its own, on any path. When omitted, OpenAI's own API applies its default (echoed back as `'auto'`).
+- `moderation` is now threaded end to end, the same way `quality` already was: `PendingImageGeneration::moderation()` (fluent, mirrors `quality()`) -> `ImageProvider::image()` -> `ImageGateway::generateImage()` -> `GeneratesImagesViaResponses::generateImageViaResponses()` -> the `image_generation` tool. Every other gateway (`Gemini`, `OpenRouter`, `AzureOpenAi`, `Xai`, `Bedrock`, `Anthropic`, the fake gateway) accepts the new parameter for interface compatibility but ignores it, unchanged from before.
+- The classic Images API path (`sendImageGenerationRequest()`/`sendImageEditRequest()`) is untouched: it keeps forcing `moderation: 'low'` for `gpt-image*` models on its own, regardless of the new parameter.
+
 ## [v0.12.2](https://github.com/alexbaldo/laravel-ai/compare/v0.12.1...v0.12.2) - 2026-09-10
 
 Fork fix: `v0.12.1` fixed the caller-supplied `quality` being dropped, but put its fallback in the wrong place -- it kept defaulting to `'low'` *inside* `laravel-ai` when no quality was requested. That default-quality choice is a business decision, not something a generic provider package should impose. This patch removes it.

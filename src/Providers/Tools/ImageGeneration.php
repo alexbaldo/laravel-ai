@@ -26,12 +26,20 @@ class ImageGeneration extends ProviderTool
      * its own default. Picking a concrete quality in that case is a
      * business decision for the consuming application to make explicitly.
      *
+     * `moderation` follows the same pattern: an optional caller-supplied
+     * override with no default of its own. The classic Images API injects
+     * `moderation: 'low'` for `gpt-image*` models, but that is a business
+     * decision that belongs to the consuming application, not this
+     * provider-agnostic tool.
+     *
      * @param  'square'|'vertical'|'horizontal'  $size
      * @param  'low'|'medium'|'high'|null  $quality
+     * @param  'low'|'auto'|null  $moderation
      */
     public function __construct(
         public string $model,
         public string $size,
         public ?string $quality = null,
+        public ?string $moderation = null,
     ) {}
 }

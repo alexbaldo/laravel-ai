@@ -254,6 +254,46 @@ test('the tool quality honors a caller-requested quality', function (string $qua
     'high' => ['high'],
 ]);
 
+test('the tool omits moderation when no moderation is requested', function (): void {
+    Http::fake(['*' => fakeOpenAiResponsesGenerationResponse()]);
+
+    $file = makeUploadedDocxFile();
+
+    Image::of('Illustrate this document')
+        ->attachments([$file])
+        ->generate(provider: 'openai', model: 'gpt-image-1');
+
+    unlink($file->getPathname());
+
+    Http::assertSent(function (Request $request): bool {
+        $body = json_decode($request->body(), true);
+
+        return ! array_key_exists('moderation', $body['tools'][0]);
+    });
+});
+
+test('the tool moderation honors a caller-requested moderation', function (string $moderation): void {
+    Http::fake(['*' => fakeOpenAiResponsesGenerationResponse()]);
+
+    $file = makeUploadedDocxFile();
+
+    Image::of('Illustrate this document')
+        ->attachments([$file])
+        ->moderation($moderation)
+        ->generate(provider: 'openai', model: 'gpt-image-1');
+
+    unlink($file->getPathname());
+
+    Http::assertSent(function (Request $request) use ($moderation): bool {
+        $body = json_decode($request->body(), true);
+
+        return $body['tools'][0]['moderation'] === $moderation;
+    });
+})->with([
+    'low' => ['low'],
+    'auto' => ['auto'],
+]);
+
 test('the tool model defaults to the configured default image model when generate() is not given one', function (): void {
     config(['ai.providers.openai' => [
         ...config('ai.providers.openai'),

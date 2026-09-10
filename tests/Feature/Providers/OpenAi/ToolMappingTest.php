@@ -356,6 +356,41 @@ test('image generation tool sends a caller-requested quality as-is', function (s
     'high' => ['high'],
 ]);
 
+test('image generation tool omits moderation when none is requested, regardless of the model', function (): void {
+    Http::fake([
+        '*' => fakeOpenAiResponse('result'),
+    ]);
+
+    agent(tools: [new ImageGeneration(model: 'gpt-image-2', size: 'square')])
+        ->prompt('Illustrate the attached document', provider: 'openai');
+
+    Http::assertSent(function (Request $request): bool {
+        $body = json_decode($request->body(), true);
+        $tool = collect(data_get($body, 'tools'))->firstWhere('type', 'image_generation');
+
+        return ! array_key_exists('moderation', $tool);
+    });
+});
+
+test('image generation tool sends a caller-requested moderation as-is', function (string $moderation): void {
+    Http::fake([
+        '*' => fakeOpenAiResponse('result'),
+    ]);
+
+    agent(tools: [new ImageGeneration(model: 'gpt-image-2', size: 'square', moderation: $moderation)])
+        ->prompt('Illustrate the attached document', provider: 'openai');
+
+    Http::assertSent(function (Request $request) use ($moderation): bool {
+        $body = json_decode($request->body(), true);
+        $tool = collect(data_get($body, 'tools'))->firstWhere('type', 'image_generation');
+
+        return data_get($tool, 'moderation') === $moderation;
+    });
+})->with([
+    'low' => ['low'],
+    'auto' => ['auto'],
+]);
+
 test('image generation tool throws for an aspect outside the reduced mapping', function (): void {
     expect(fn () => Ai::textProvider('openai')->imageGenerationToolOptions(
         new ImageGeneration(model: 'gpt-image-2.5-flare', size: '21:9')

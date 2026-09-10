@@ -33,6 +33,7 @@ class BedrockImageGateway implements ImageGateway
         array $attachments = [],
         ?string $size = null,
         ?string $quality = null,
+        ?string $moderation = null,
         ?int $timeout = null,
     ): ImageResponse {
         $client = $this->createBedrockClient($provider, $timeout);

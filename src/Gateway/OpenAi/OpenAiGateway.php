@@ -54,6 +54,11 @@ class OpenAiGateway implements Gateway, StepTextGateway
      * @param  array<Image>  $attachments
      * @param  '3:2'|'2:3'|'1:1'|null  $size
      * @param  'low'|'medium'|'high'|null  $quality
+     * @param  'low'|'auto'|null  $moderation  Only honored on the Responses API `image_generation`
+     *                                         tool path (`generateImageViaResponses()`). The classic
+     *                                         Images API branches below already force `moderation: 'low'`
+     *                                         for `gpt-image*` models on their own, regardless of this
+     *                                         argument -- see `sendImageGenerationRequest()`/`sendImageEditRequest()`.
      */
     public function generateImage(
         ImageProvider $provider,
@@ -62,6 +67,7 @@ class OpenAiGateway implements Gateway, StepTextGateway
         array $attachments = [],
         ?string $size = null,
         ?string $quality = null,
+        ?string $moderation = null,
         ?int $timeout = null,
     ): ImageResponse {
         return $this->withErrorHandling(
@@ -72,7 +78,7 @@ class OpenAiGateway implements Gateway, StepTextGateway
                 // tool (GI-A1/GI-A2) can. R2: the two branches below this
                 // one are untouched, so this is the only new branch (GI-A3).
                 $this->hasNonImageAttachment($attachments) => $this->generateImageViaResponses(
-                    $provider, $model, $prompt, $attachments, $size, $quality, $timeout,
+                    $provider, $model, $prompt, $attachments, $size, $quality, $moderation, $timeout,
                 ),
                 filled($attachments) => $this->buildImageResponse(
                     $this->sendImageEditRequest($provider, $model, $prompt, $attachments, $size, $quality, $timeout),

@@ -107,6 +107,7 @@ class OpenRouterGateway implements Gateway, StepTextGateway
         array $attachments = [],
         ?string $size = null,
         ?string $quality = null,
+        ?string $moderation = null,
         ?int $timeout = null,
     ): ImageResponse {
         $imageOptions = $provider->defaultImageOptions($size, $quality);

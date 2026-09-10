@@ -119,6 +119,7 @@ class GeminiGateway implements Gateway, StepTextGateway
         array $attachments = [],
         ?string $size = null,
         ?string $quality = null,
+        ?string $moderation = null,
         ?int $timeout = null,
     ): ImageResponse {
         $parts = [['text' => $prompt]];
