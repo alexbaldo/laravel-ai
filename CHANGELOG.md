@@ -2,6 +2,15 @@
 
 ## [Unreleased](https://github.com/laravel/ai/compare/v0.11.2...0.x)
 
+## [v0.12.1](https://github.com/alexbaldo/laravel-ai/compare/v0.12.0...v0.12.1) - 2026-09-10
+
+Fork fix: the Responses API `image_generation` tool path (v0.12.0) no longer forces `quality` to `low` regardless of what the caller asked for.
+
+### Fixed
+
+- `generateImage()`'s Responses API path (`GeneratesImagesViaResponses::generateImageViaResponses()`) now forwards the caller's requested `quality` to the `image_generation` tool. It still falls back to `OpenAiProvider::lowestImageGenerationQuality()` (`'low'`) when no quality is specified, exactly as before -- only a caller-supplied quality was being silently dropped.
+- `Laravel\Ai\Providers\Tools\ImageGeneration` gained an optional `?string $quality` constructor argument, mirroring how `model`/`size` are already caller-configurable. `OpenAiProvider::imageGenerationToolOptions()` uses it when present.
+
 ## [v0.12.0](https://github.com/alexbaldo/laravel-ai/compare/v0.11.3...v0.12.0) - 2026-09-10
 
 Fork feature: `OpenAiGateway::generateImage()` resolves non-image document attachments through the Responses API instead of failing.
