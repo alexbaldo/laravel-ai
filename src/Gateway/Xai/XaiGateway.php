@@ -109,6 +109,7 @@ class XaiGateway implements Gateway, StepTextGateway
         array $attachments = [],
         ?string $size = null,
         ?string $quality = null,
+        ?string $moderation = null,
         ?int $timeout = null,
     ): ImageResponse {
         throw new LogicException('Use XaiImageGateway for image generation.');

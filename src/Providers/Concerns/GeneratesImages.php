@@ -17,12 +17,14 @@ trait GeneratesImages
      *
      * @param  array<Image>  $attachments
      * @param  'low'|'medium'|'high'|null  $quality
+     * @param  'low'|'auto'|null  $moderation
      */
     public function image(
         string $prompt,
         array $attachments = [],
         ?string $size = null,
         ?string $quality = null,
+        ?string $moderation = null,
         ?string $model = null,
         ?int $timeout = null,
     ): ImageResponse {
@@ -41,7 +43,7 @@ trait GeneratesImages
         ));
 
         return tap($this->imageGateway()->generateImage(
-            $this, $model, $prompt->prompt, $prompt->attachments->all(), $prompt->size, $prompt->quality, $timeout,
+            $this, $model, $prompt->prompt, $prompt->attachments->all(), $prompt->size, $prompt->quality, $moderation, $timeout,
         ), function (ImageResponse $response) use ($invocationId, $prompt, $model): void {
             $this->events->dispatch(new ImageGenerated(
                 $invocationId, $this, $model, $prompt, $response,

@@ -28,6 +28,8 @@ class PendingImageGeneration
 
     public ?string $quality = null;
 
+    public ?string $moderation = null;
+
     public ?int $timeout = null;
 
     public function __construct(public string $prompt)
@@ -102,6 +104,22 @@ class PendingImageGeneration
     }
 
     /**
+     * Specify the moderation level for the generated image.
+     *
+     * Caller-configurable, mirroring `quality`: this package imposes no
+     * default of its own for it, on any path (see
+     * `OpenAiProvider::imageGenerationToolOptions()`).
+     *
+     * @param  'low'|'auto'  $moderation
+     */
+    public function moderation(string $moderation): self
+    {
+        $this->moderation = $moderation;
+
+        return $this;
+    }
+
+    /**
      * Specify the timeout for the image generation request.
      */
     public function timeout(?int $timeout): self
@@ -131,7 +149,7 @@ class PendingImageGeneration
 
             try {
                 return $provider->image(
-                    $this->prompt, $this->attachments, $this->size, $this->quality, $model, $this->timeout
+                    $this->prompt, $this->attachments, $this->size, $this->quality, $this->moderation, $model, $this->timeout
                 );
             } catch (FailoverableException $e) {
                 $lastException = $e;

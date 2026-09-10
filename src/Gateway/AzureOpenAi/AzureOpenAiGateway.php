@@ -87,6 +87,7 @@ class AzureOpenAiGateway implements EmbeddingGateway, ImageGateway, StepTextGate
         array $attachments = [],
         ?string $size = null,
         ?string $quality = null,
+        ?string $moderation = null,
         ?int $timeout = null,
     ): ImageResponse {
         if (filled($attachments)) {

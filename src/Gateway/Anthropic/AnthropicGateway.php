@@ -127,6 +127,7 @@ class AnthropicGateway implements Gateway, StepTextGateway
         array $attachments = [],
         ?string $size = null,
         ?string $quality = null,
+        ?string $moderation = null,
         ?int $timeout = null,
     ): ImageResponse {
         throw new LogicException('Anthropic does not support image generation.');

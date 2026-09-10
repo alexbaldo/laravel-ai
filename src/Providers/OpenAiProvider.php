@@ -102,6 +102,11 @@ class OpenAiProvider extends Provider implements AudioProvider, EmbeddingProvide
      * Picking a concrete default when the caller doesn't ask for one is a
      * business decision that belongs to the consuming application, not this
      * package.
+     *
+     * `moderation` follows the same rule: it is only included when the
+     * caller supplies `ImageGeneration::$moderation`, and simply omitted
+     * otherwise, letting the `image_generation` tool fall back to its own
+     * API default (currently echoed back as `'auto'`).
      */
     public function imageGenerationToolOptions(ImageGeneration $generation): array
     {
@@ -109,6 +114,7 @@ class OpenAiProvider extends Provider implements AudioProvider, EmbeddingProvide
             'model' => $generation->model,
             'size' => $this->imageGenerationSize($generation->size),
             'quality' => $generation->quality,
+            'moderation' => $generation->moderation,
         ], fn (?string $value): bool => $value !== null);
     }
 
