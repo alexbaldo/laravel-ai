@@ -21,9 +21,10 @@ class ImageGeneration extends ProviderTool
      * a caller needs them.
      *
      * `quality` is an optional caller-supplied override, mirroring `model`
-     * and `size`: when omitted, each provider's mapping falls back to the
-     * lowest tier its active model supports (see
-     * `OpenAiProvider::lowestImageGenerationQuality()`).
+     * and `size`: when omitted, this package imposes no default of its own
+     * -- OpenAI's mapping simply leaves the key out, letting the API apply
+     * its own default. Picking a concrete quality in that case is a
+     * business decision for the consuming application to make explicitly.
      *
      * @param  'square'|'vertical'|'horizontal'  $size
      * @param  'low'|'medium'|'high'|null  $quality

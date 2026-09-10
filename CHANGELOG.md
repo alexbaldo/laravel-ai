@@ -2,6 +2,15 @@
 
 ## [Unreleased](https://github.com/laravel/ai/compare/v0.11.2...0.x)
 
+## [v0.12.2](https://github.com/alexbaldo/laravel-ai/compare/v0.12.1...v0.12.2) - 2026-09-10
+
+Fork fix: `v0.12.1` fixed the caller-supplied `quality` being dropped, but put its fallback in the wrong place -- it kept defaulting to `'low'` *inside* `laravel-ai` when no quality was requested. That default-quality choice is a business decision, not something a generic provider package should impose. This patch removes it.
+
+### Fixed
+
+- `OpenAiProvider::imageGenerationToolOptions()` no longer falls back to `'low'` when `ImageGeneration::$quality` is `null`. The `quality` key is now omitted from the `image_generation` tool entirely in that case, letting OpenAI's own API apply its default (`'auto'`) instead of the package deciding a value on the caller's behalf. A caller-supplied `quality` still travels exactly as before.
+- `OpenAiProvider::lowestImageGenerationQuality()` is kept as a public utility method (now `public` instead of `protected`) for a consumer that wants to explicitly request the lowest tier -- it is simply no longer applied automatically.
+
 ## [v0.12.1](https://github.com/alexbaldo/laravel-ai/compare/v0.12.0...v0.12.1) - 2026-09-10
 
 Fork fix: the Responses API `image_generation` tool path (v0.12.0) no longer forces `quality` to `low` regardless of what the caller asked for.

@@ -214,7 +214,7 @@ test('the input_file part carries the real filename and mime type of the attache
     });
 });
 
-test('the tool quality falls back to the lowest tier when no quality is requested', function (): void {
+test('the tool omits quality when no quality is requested', function (): void {
     Http::fake(['*' => fakeOpenAiResponsesGenerationResponse()]);
 
     $file = makeUploadedDocxFile();
@@ -228,7 +228,7 @@ test('the tool quality falls back to the lowest tier when no quality is requeste
     Http::assertSent(function (Request $request): bool {
         $body = json_decode($request->body(), true);
 
-        return $body['tools'][0]['quality'] === 'low';
+        return ! array_key_exists('quality', $body['tools'][0]);
     });
 });
 
