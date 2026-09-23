@@ -64,6 +64,39 @@ test('transcription strips diarize suffix from model when diarize is off', funct
         && ! str_contains($request->body(), 'gpt-4o-transcribe-diarize'));
 });
 
+test('diarized transcription sends a chunking strategy', function (): void {
+    Http::fake(['*' => fakeOpenAiTranscriptionResponse()]);
+
+    Transcription::fromBase64(base64_encode('fake-audio'), 'audio/mp3')
+        ->diarize()
+        ->generate(provider: 'openai', model: 'gpt-4o-transcribe-diarize');
+
+    // OpenAI answers 400 "chunking_strategy is required for diarization models"
+    // without it, so asking only to diarize used to fail outright.
+    Http::assertSent(fn (Request $request): bool => str_contains($request->body(), 'chunking_strategy')
+        && str_contains($request->body(), 'auto'));
+});
+
+test('a caller can choose its own chunking strategy', function (): void {
+    Http::fake(['*' => fakeOpenAiTranscriptionResponse()]);
+
+    Transcription::fromBase64(base64_encode('fake-audio'), 'audio/mp3')
+        ->diarize()
+        ->withProviderOptions(['chunking_strategy' => 'server_vad'])
+        ->generate(provider: 'openai', model: 'gpt-4o-transcribe-diarize');
+
+    Http::assertSent(fn (Request $request): bool => str_contains($request->body(), 'server_vad'));
+});
+
+test('a plain transcription sends no chunking strategy', function (): void {
+    Http::fake(['*' => fakeOpenAiTranscriptionResponse()]);
+
+    Transcription::fromBase64(base64_encode('fake-audio'), 'audio/mp3')
+        ->generate(provider: 'openai');
+
+    Http::assertSent(fn (Request $request): bool => ! str_contains($request->body(), 'chunking_strategy'));
+});
+
 test('transcription response text is correctly parsed', function (): void {
     Http::fake(['*' => fakeOpenAiTranscriptionResponse('Hello, world!')]);
 

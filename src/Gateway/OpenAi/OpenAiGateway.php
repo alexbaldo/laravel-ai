@@ -276,6 +276,10 @@ class OpenAiGateway implements Gateway, StepTextGateway
                     'model' => $model,
                     'language' => $language,
                     'response_format' => $diarize ? 'diarized_json' : 'json',
+                    // OpenAI rejects a diarization model outright without this, so a
+                    // caller that only asked to diarize gets a 400 rather than a
+                    // transcript. Overridable, since it is merged under providerOptions.
+                    'chunking_strategy' => $diarize ? ($providerOptions['chunking_strategy'] ?? 'auto') : null,
                 ]))),
         );
 

@@ -2,6 +2,12 @@
 
 ## [Unreleased](https://github.com/laravel/ai/compare/v0.11.2...0.x)
 
+## [v0.12.5](https://github.com/alexbaldo/laravel-ai/compare/v0.12.4...v0.12.5) - 2026-09-23
+
+### Fixed
+
+- Asking for a diarized transcription failed outright against OpenAI: the diarization models now require `chunking_strategy`, which the gateway never sent, so `->diarize()->generate()` came back as a 400. It is sent as `auto` whenever diarization is on, and a caller can still choose its own through `withProviderOptions(['chunking_strategy' => ...])`. Plain transcriptions send nothing, as before.
+
 ## [v0.12.4](https://github.com/alexbaldo/laravel-ai/compare/v0.12.3...v0.12.4) - 2026-09-23
 
 Fork release: merges 30 commits of laravel/ai into the fork.
