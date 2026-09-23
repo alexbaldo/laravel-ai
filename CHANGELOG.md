@@ -2,6 +2,15 @@
 
 ## [Unreleased](https://github.com/laravel/ai/compare/v0.11.2...0.x)
 
+## [v0.12.4](https://github.com/alexbaldo/laravel-ai/compare/v0.12.3...v0.12.4) - 2026-09-23
+
+Fork release: merges 30 commits of laravel/ai into the fork.
+
+### Fixed
+
+- Cohere embeddings on Bedrock reported no usage at all. Upstream now reads the input token count from the `x-amzn-bedrock-input-token-count` header; that count is kept, carried in the `Usage` object this fork types the response with.
+- `Laravel\Ai\Files\Audio` now declares `content()`, which every concrete subclass already provides (`RemoteAudio` through `HasRemoteContent`). Upstream's new OpenRouter audio mapping calls it on the abstract type, which static analysis rejected.
+
 ## [v0.12.3](https://github.com/alexbaldo/laravel-ai/compare/v0.12.2...v0.12.3) - 2026-09-10
 
 Fork feature (ADR-0007 / GI-Q8): the Responses API `image_generation` tool now accepts a caller-supplied `moderation`, closing the gap with the classic Images API path -- which already injects `moderation: 'low'` for `gpt-image*` models on its own.

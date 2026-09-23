@@ -5,6 +5,11 @@ namespace Laravel\Ai\Files;
 abstract class Audio extends File
 {
     /**
+     * Get the raw bytes of the file.
+     */
+    abstract public function content(): string;
+
+    /**
      * Create a new audio from Base64 data.
      */
     public static function fromBase64(string $base64, ?string $mimeType = null): Base64Audio
