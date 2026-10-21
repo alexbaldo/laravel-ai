@@ -22,6 +22,14 @@ readonly class ImageUsage extends TextUsage
     }
 
     /**
+     * Determine if the usage carries more than a text-only split of its totals.
+     */
+    protected function reportsModalities(): bool
+    {
+        return parent::reportsModalities() || $this->imageInputTokens !== null || $this->imageOutputTokens !== null;
+    }
+
+    /**
      * Derive a per-modality split from the totals, attributing the image subsets to the image modality.
      *
      * @return array<string, array<string, int>>

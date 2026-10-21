@@ -51,18 +51,28 @@ readonly class TextUsage extends Usage
     /**
      * Add the given usage to the current usage and return a new usage instance.
      */
-    public function add(TextUsage $usage): TextUsage
+    public function add(Usage $usage): TextUsage
     {
+        $text = $usage instanceof TextUsage ? $usage : null;
+
         return new TextUsage(
             $this->inputTokens + $usage->inputTokens,
             $this->outputTokens + $usage->outputTokens,
-            static::sum($this->cacheReadInputTokens, $usage->cacheReadInputTokens),
-            static::sum($this->cacheWriteInputTokens, $usage->cacheWriteInputTokens),
-            static::sum($this->reasoningTokens, $usage->reasoningTokens),
-            $this->modalities === [] && $usage->modalities === []
-                ? []
-                : static::sumModalities($this->resolvedModalities(), $usage->resolvedModalities()),
+            static::sum($this->cacheReadInputTokens, $text?->cacheReadInputTokens),
+            static::sum($this->cacheWriteInputTokens, $text?->cacheWriteInputTokens),
+            static::sum($this->reasoningTokens, $text?->reasoningTokens),
+            $this->reportsModalities() || ($text?->reportsModalities() ?? false)
+                ? static::sumModalities($this->resolvedModalities(), $usage->resolvedModalities())
+                : [],
         );
+    }
+
+    /**
+     * Determine if the usage carries more than a text-only split of its totals.
+     */
+    protected function reportsModalities(): bool
+    {
+        return $this->modalities !== [];
     }
 
     /**

@@ -145,3 +145,22 @@ test('openai transcription usage reads its singular input token details key', fu
         'output_tokens' => ['text' => 30],
     ]);
 });
+
+test('adding image usage keeps its image subsets apart', function () {
+    $sum = (new TextUsage)->add(new ImageUsage(100, 1100, imageInputTokens: 40, imageOutputTokens: 1000));
+
+    expect($sum->breakdown())->toBe([
+        'input_tokens' => ['text' => 60, 'image' => 40],
+        'output_tokens' => ['text' => 100, 'image' => 1000],
+    ]);
+});
+
+test('plain usage can be added to text usage', function () {
+    $sum = (new TextUsage(10, 5))->add(new Usage(7));
+
+    expect($sum->inputTokens)->toBe(17)
+        ->and($sum->breakdown())->toBe([
+            'input_tokens' => ['text' => 17],
+            'output_tokens' => ['text' => 5],
+        ]);
+});

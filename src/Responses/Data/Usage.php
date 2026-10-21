@@ -38,6 +38,19 @@ readonly class Usage implements Arrayable, JsonSerializable
     }
 
     /**
+     * Get the per-modality split of the counts, attributing everything to text.
+     *
+     * @return array<string, array<string, int>>
+     */
+    public function resolvedModalities(): array
+    {
+        return [
+            'input' => ['text' => $this->inputTokens],
+            'output' => ['text' => $this->outputTokens],
+        ];
+    }
+
+    /**
      * Get the instance as an array.
      */
     public function toArray(): array
