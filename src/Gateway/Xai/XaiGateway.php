@@ -109,8 +109,8 @@ class XaiGateway implements Gateway, StepTextGateway
         array $attachments = [],
         ?string $size = null,
         ?string $quality = null,
-        ?string $moderation = null,
         ?int $timeout = null,
+        array $providerOptions = [],
     ): ImageResponse {
         throw new LogicException('Use XaiImageGateway for image generation.');
     }
@@ -125,6 +125,7 @@ class XaiGateway implements Gateway, StepTextGateway
         string $voice,
         ?string $instructions = null,
         int $timeout = 30,
+        array $providerOptions = [],
     ): AudioResponse {
         throw new LogicException('xAI does not support audio generation.');
     }

@@ -59,7 +59,7 @@ trait MapsEmbeddingInputs
 
         return new EmbeddingsResponse(
             (new Collection($data['data'] ?? []))->pluck('embedding')->all(),
-            new Usage(['text' => $data['usage']['total_tokens'] ?? $data['total_tokens'] ?? 0]),
+            new Usage($data['usage']['total_tokens'] ?? $data['total_tokens'] ?? 0),
             new Meta($provider->name(), $model),
         );
     }

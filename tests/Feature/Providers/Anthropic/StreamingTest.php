@@ -44,7 +44,7 @@ describe('text streaming', function (): void {
             ->and($events[5])->toBeInstanceOf(StreamEnd::class);
     });
 
-    test('streaming starts a new text part after each text block', function (): void {
+    test('streaming reports the text blocks of one step as a single message', function (): void {
         Http::fake([
             'api.anthropic.com/*' => Http::response(
                 body: $this->ssePayload([
@@ -70,14 +70,61 @@ describe('text streaming', function (): void {
         $textEnds = array_values(array_filter($events, fn ($e): bool => $e instanceof TextEnd));
         $textDeltas = array_values(array_filter($events, fn ($e): bool => $e instanceof TextDelta));
 
-        expect($textStarts)->toHaveCount(2)
-            ->and($textEnds)->toHaveCount(2)
+        // A web search closes the text block and reopens it mid-answer. Reporting each block as
+        // its own message made an AG-UI client draw one answer as several, so the step opens and
+        // closes exactly one message, and closes it only once the last block has been sent...
+        expect($textStarts)->toHaveCount(1)
+            ->and($textEnds)->toHaveCount(1)
             ->and($textDeltas)->toHaveCount(2)
-            ->and($textStarts[0]->messageId)->not->toBe($textStarts[1]->messageId)
             ->and($textEnds[0]->messageId)->toBe($textStarts[0]->messageId)
-            ->and($textEnds[1]->messageId)->toBe($textStarts[1]->messageId)
             ->and($textDeltas[0]->messageId)->toBe($textStarts[0]->messageId)
-            ->and($textDeltas[1]->messageId)->toBe($textStarts[1]->messageId);
+            ->and($textDeltas[1]->messageId)->toBe($textStarts[0]->messageId)
+            ->and($textDeltas[0]->delta)->toBe('First')
+            ->and($textDeltas[1]->delta)->toBe("\n\nSecond")
+            ->and(array_search($textEnds[0], $events, true))->toBeGreaterThan(array_search($textDeltas[1], $events, true));
+    });
+
+    test('streaming keeps a thinking block out of the message the step\'s text belongs to', function (): void {
+        Http::fake([
+            'api.anthropic.com/*' => Http::response(
+                body: $this->ssePayload([
+                    $this->messageStart(),
+                    $this->contentBlockStart(0, ['type' => 'text', 'text' => '']),
+                    $this->contentBlockDelta(0, ['type' => 'text_delta', 'text' => 'First']),
+                    $this->contentBlockStop(0),
+                    $this->contentBlockStart(1, ['type' => 'thinking', 'thinking' => '']),
+                    $this->contentBlockDelta(1, ['type' => 'thinking_delta', 'thinking' => 'Pondering']),
+                    $this->contentBlockStop(1),
+                    $this->contentBlockStart(2, ['type' => 'text', 'text' => '']),
+                    $this->contentBlockDelta(2, ['type' => 'text_delta', 'text' => 'Second']),
+                    $this->contentBlockStop(2),
+                    $this->messageDelta('end_turn', 10),
+                ]),
+                status: 200,
+                headers: ['Content-Type' => 'text/event-stream'],
+            ),
+        ]);
+
+        $events = $this->collectStreamEvents();
+
+        $textStarts = array_values(array_filter($events, fn ($e): bool => $e instanceof TextStart));
+        $textEnds = array_values(array_filter($events, fn ($e): bool => $e instanceof TextEnd));
+        $textDeltas = array_values(array_filter($events, fn ($e): bool => $e instanceof TextDelta));
+        $reasoningStarts = array_values(array_filter($events, fn ($e): bool => $e instanceof ReasoningStart));
+        $reasoningEnds = array_values(array_filter($events, fn ($e): bool => $e instanceof ReasoningEnd));
+        $reasoningDeltas = array_values(array_filter($events, fn ($e): bool => $e instanceof ReasoningDelta));
+
+        // Text spans that a thinking block interrupts still belong to one message, and the
+        // thinking carries its own ID so the two never merge into each other...
+        expect($textStarts)->toHaveCount(1)
+            ->and($textEnds)->toHaveCount(1)
+            ->and($reasoningStarts)->toHaveCount(1)
+            ->and($reasoningEnds)->toHaveCount(1)
+            ->and($textDeltas[0]->messageId)->toBe($textStarts[0]->messageId)
+            ->and($textDeltas[1]->messageId)->toBe($textStarts[0]->messageId)
+            ->and($reasoningDeltas[0]->reasoningId)->not->toBe($textStarts[0]->messageId)
+            ->and(TextDelta::combine($events))->toBe('FirstSecond')
+            ->and($reasoningDeltas[0]->delta)->toBe('Pondering');
     });
 });
 
@@ -248,6 +295,70 @@ describe('pause_turn', function (): void {
         expect($textDeltas)->not->toBeEmpty()
             ->and($textDeltas[0]->delta)->toBe('Resumed');
     });
+
+    test('streaming replays text blocks around a server tool without the separator', function (): void {
+        Http::fake([
+            'api.anthropic.com/*' => Http::sequence([
+                Http::response(
+                    body: $this->ssePayload([
+                        $this->messageStart(),
+                        $this->contentBlockStart(0, ['type' => 'text', 'text' => '']),
+                        $this->contentBlockDelta(0, ['type' => 'text_delta', 'text' => 'First']),
+                        $this->contentBlockStop(0),
+                        $this->contentBlockStart(1, ['type' => 'server_tool_use', 'id' => 'srvtoolu_1', 'name' => 'web_search']),
+                        $this->contentBlockStop(1),
+                        $this->contentBlockStart(2, ['type' => 'text', 'text' => '']),
+                        $this->contentBlockDelta(2, ['type' => 'text_delta', 'text' => 'Second']),
+                        $this->contentBlockStop(2),
+                        $this->messageDelta('pause_turn', 5),
+                    ]),
+                    status: 200,
+                    headers: ['Content-Type' => 'text/event-stream'],
+                ),
+                Http::response(
+                    body: $this->ssePayload([
+                        $this->messageStart(),
+                        $this->messageDelta('end_turn', 5),
+                    ]),
+                    status: 200,
+                    headers: ['Content-Type' => 'text/event-stream'],
+                ),
+            ]),
+        ]);
+
+        $events = $this->collectStreamEvents();
+
+        $followUpBody = Http::recorded()[1][0]->data();
+        $replayed = end($followUpBody['messages'])['content'];
+
+        expect([$replayed[0]['text'], $replayed[2]['text']])->toBe(['First', 'Second'])
+            ->and(TextDelta::combine($events))->toBe("First\n\nSecond");
+    });
+
+    test('streaming does not separate text after a server tool when the model already ended the line', function (): void {
+        Http::fake([
+            'api.anthropic.com/*' => Http::response(
+                body: $this->ssePayload([
+                    $this->messageStart(),
+                    $this->contentBlockStart(0, ['type' => 'text', 'text' => '']),
+                    $this->contentBlockDelta(0, ['type' => 'text_delta', 'text' => "First\n"]),
+                    $this->contentBlockStop(0),
+                    $this->contentBlockStart(1, ['type' => 'server_tool_use', 'id' => 'srvtoolu_1', 'name' => 'web_search']),
+                    $this->contentBlockStop(1),
+                    $this->contentBlockStart(2, ['type' => 'text', 'text' => '']),
+                    $this->contentBlockDelta(2, ['type' => 'text_delta', 'text' => 'Second']),
+                    $this->contentBlockStop(2),
+                    $this->messageDelta('end_turn', 10),
+                ]),
+                status: 200,
+                headers: ['Content-Type' => 'text/event-stream'],
+            ),
+        ]);
+
+        $textDeltas = array_values(array_filter($this->collectStreamEvents(), fn ($e): bool => $e instanceof TextDelta));
+
+        expect(array_map(fn (TextDelta $e): string => $e->delta, $textDeltas))->toBe(["First\n", 'Second']);
+    });
 });
 
 describe('error handling', function (): void {
@@ -297,7 +408,7 @@ describe('usage tracking', function (): void {
                     $this->contentBlockStart(0, ['type' => 'text', 'text' => '']),
                     $this->contentBlockDelta(0, ['type' => 'text_delta', 'text' => 'Hello']),
                     $this->contentBlockStop(0),
-                    $this->messageDelta('end_turn', 10),
+                    $this->messageDelta('end_turn', 10, thinkingTokens: 6),
                 ]),
                 status: 200,
                 headers: ['Content-Type' => 'text/event-stream'],
@@ -309,10 +420,11 @@ describe('usage tracking', function (): void {
         $streamEnd = array_values(array_filter($events, fn ($e): bool => $e instanceof StreamEnd))[0];
 
         expect($streamEnd->usage)
-            ->promptTokens->toBe(42)
-            ->completionTokens->toBe(10)
+            ->inputTokens->toBe(192)
+            ->outputTokens->toBe(10)
             ->cacheWriteInputTokens->toBe(100)
-            ->cacheReadInputTokens->toBe(50);
+            ->cacheReadInputTokens->toBe(50)
+            ->reasoningTokens->toBe(6);
     });
 
     test('streaming prefers the cumulative usage reported on message delta', function (): void {
@@ -358,8 +470,8 @@ describe('usage tracking', function (): void {
         $streamEnd = array_values(array_filter($events, fn ($e) => $e instanceof StreamEnd))[0];
 
         expect($streamEnd->usage)
-            ->promptTokens->toBe(10682)
-            ->completionTokens->toBe(510)
+            ->inputTokens->toBe(10782)
+            ->outputTokens->toBe(510)
             ->cacheWriteInputTokens->toBe(25)
             ->cacheReadInputTokens->toBe(75);
     });
@@ -427,8 +539,8 @@ describe('usage tracking', function (): void {
         expect($streamEnds)->toHaveCount(1)
             ->and($streamEnds[0]->reason)->toBe(FinishReason::Stop->value)
             ->and($streamEnds[0]->usage)
-            ->promptTokens->toBe(30)
-            ->completionTokens->toBe(15)
+            ->inputTokens->toBe(50)
+            ->outputTokens->toBe(15)
             ->cacheWriteInputTokens->toBe(10)
             ->cacheReadInputTokens->toBe(10);
     });

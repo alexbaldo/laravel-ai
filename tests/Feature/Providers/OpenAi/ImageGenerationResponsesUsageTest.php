@@ -95,15 +95,16 @@ test('usage via the responses path keeps the carrier and image tool tokens in se
 
     // The carrier's own tokens (2535 in / 185 out) land in the usual
     // input/output buckets, exactly as any other Responses API call would
-    // report them -- promptTokens()/completionTokens() read only those.
-    expect($response->usage->promptTokens)->toBe(2535)
-        ->and($response->usage->completionTokens)->toBe(185)
+    // report them -- inputTokens/outputTokens hold only those.
+    expect($response->usage->inputTokens)->toBe(2535)
+        ->and($response->usage->outputTokens)->toBe(185)
         // The image tool's own tokens (172 in / 1372 out) never touch those
-        // buckets: they live in toolsTokens, split by modality exactly as
+        // buckets: they live in modalities['tools'], split by modality exactly as
         // the plan's mapping requires -- output_tokens_details.image_tokens
         // is the image tokens, input_tokens_details.text_tokens is the
         // tool's own (not the carrier's) text tokens.
-        ->and($response->usage->toolsTokens)->toBe(['text' => 172, 'image' => 1372]);
+        ->and($response->usage->modalities['tools'])->toBe(['text' => 172, 'image' => 1372])
+        ->and($response->usage->breakdown()['tools_tokens'])->toBe(['text' => 172, 'image' => 1372]);
 });
 
 test('usage via the responses path does not fold the image tool tokens into the carrier prompt/completion totals', function (): void {
@@ -117,12 +118,11 @@ test('usage via the responses path does not fold the image tool tokens into the 
 
     unlink($file->getPathname());
 
-    // If the 1372 image-output tokens leaked into completionTokens() (which
-    // only sums inputTokens/outputTokens, not toolsTokens), this would read
+    // If the 1372 image-output tokens leaked into outputTokens, this would read
     // 1557, not 185 -- a silent conflation between two models billed at two
-    // different rates, exactly what the separate toolsTokens bucket exists
+    // different rates, exactly what the separate tools bucket exists
     // to prevent (CostHelper needs the two tramos apart, ai-ai GI-B4).
-    expect($response->usage->completionTokens)->toBe(185);
+    expect($response->usage->outputTokens)->toBe(185);
 });
 
 test('a responses payload missing tool_usage.image_gen throws instead of silently costing zero', function (): void {
@@ -167,9 +167,9 @@ test('meta from the responses path exposes both the image model and the carrier 
 // API response shape (a flat `usage` object, no `tool_usage` sibling at all)
 // never triggers it in the first place. ImageGenerationTest.php/ImageEditTest.php
 // already exercise this branch extensively; this test exists to make the
-// "no tool_usage.* leaks into toolsTokens on the classic path" property
+// "no tool_usage.* leaks into the tools bucket on the classic path" property
 // explicit, next to the new branch it is guarding against.
-test('usage via the classic images API leaves toolsTokens empty, unaffected by the new responses branch', function (): void {
+test('usage via the classic images API leaves the tools bucket empty, unaffected by the new responses branch', function (): void {
     Http::fake(['*' => Http::response([
         'data' => [['b64_json' => base64_encode('fresh-image')]],
         'usage' => [
@@ -181,8 +181,8 @@ test('usage via the classic images API leaves toolsTokens empty, unaffected by t
 
     $response = Image::of('A red apple')->generate(provider: 'openai', model: 'gpt-image-1');
 
-    expect($response->usage->promptTokens)->toBe(41)
-        ->and($response->usage->completionTokens)->toBe(1024)
-        ->and($response->usage->toolsTokens)->toBe([])
+    expect($response->usage->inputTokens)->toBe(41)
+        ->and($response->usage->outputTokens)->toBe(1024)
+        ->and($response->usage->breakdown())->not->toHaveKey('tools_tokens')
         ->and($response->meta->carrierModel)->toBeNull();
 });

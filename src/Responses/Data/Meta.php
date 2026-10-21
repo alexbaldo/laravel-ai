@@ -42,7 +42,7 @@ class Meta implements Arrayable, JsonSerializable
             'citations' => $this->citations
                 ? $this->citations->all()
                 : [],
-            'carrier_model' => $this->carrierModel,
+            ...($this->carrierModel !== null ? ['carrier_model' => $this->carrierModel] : []),
         ];
     }
 

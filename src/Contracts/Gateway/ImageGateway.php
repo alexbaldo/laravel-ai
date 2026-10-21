@@ -13,7 +13,7 @@ interface ImageGateway
      *
      * @param  array<Image>  $attachments
      * @param  'low'|'medium'|'high'|null  $quality
-     * @param  'low'|'auto'|null  $moderation
+     * @param  array<string, mixed>  $providerOptions
      */
     public function generateImage(
         ImageProvider $provider,
@@ -22,7 +22,7 @@ interface ImageGateway
         array $attachments = [],
         ?string $size = null,
         ?string $quality = null,
-        ?string $moderation = null,
         ?int $timeout = null,
+        array $providerOptions = [],
     ): ImageResponse;
 }

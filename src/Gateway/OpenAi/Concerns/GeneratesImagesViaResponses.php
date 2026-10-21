@@ -9,8 +9,8 @@ use Laravel\Ai\Exceptions\ImageGenerationFailedException;
 use Laravel\Ai\Files\Image;
 use Laravel\Ai\Providers\Tools\ImageGeneration;
 use Laravel\Ai\Responses\Data\GeneratedImage;
+use Laravel\Ai\Responses\Data\ImageUsage;
 use Laravel\Ai\Responses\Data\Meta;
-use Laravel\Ai\Responses\Data\Usage;
 use Laravel\Ai\Responses\ImageResponse;
 use RuntimeException;
 
@@ -93,7 +93,7 @@ trait GeneratesImagesViaResponses
      *
      * @throws ImageGenerationFailedException
      */
-    protected function extractResponsesImageUsage(array $data): Usage
+    protected function extractResponsesImageUsage(array $data): ImageUsage
     {
         $toolUsage = $data['tool_usage']['image_gen'] ?? null;
 
@@ -101,14 +101,24 @@ trait GeneratesImagesViaResponses
             throw ImageGenerationFailedException::forMissingToolUsage();
         }
 
-        return $this->extractUsage($data)->add(new Usage(
-            toolsTokens: [
-                'text' => ($toolUsage['input_tokens_details']['text_tokens'] ?? 0)
-                    + ($toolUsage['output_tokens_details']['text_tokens'] ?? 0),
-                'image' => ($toolUsage['input_tokens_details']['image_tokens'] ?? 0)
-                    + ($toolUsage['output_tokens_details']['image_tokens'] ?? 0),
+        $carrier = $this->extractUsage($data);
+
+        return new ImageUsage(
+            inputTokens: $carrier->inputTokens,
+            outputTokens: $carrier->outputTokens,
+            cacheReadInputTokens: $carrier->cacheReadInputTokens,
+            cacheWriteInputTokens: $carrier->cacheWriteInputTokens,
+            reasoningTokens: $carrier->reasoningTokens,
+            modalities: [
+                ...$carrier->modalities,
+                'tools' => [
+                    'text' => ($toolUsage['input_tokens_details']['text_tokens'] ?? 0)
+                        + ($toolUsage['output_tokens_details']['text_tokens'] ?? 0),
+                    'image' => ($toolUsage['input_tokens_details']['image_tokens'] ?? 0)
+                        + ($toolUsage['output_tokens_details']['image_tokens'] ?? 0),
+                ],
             ],
-        ));
+        );
     }
 
     /**

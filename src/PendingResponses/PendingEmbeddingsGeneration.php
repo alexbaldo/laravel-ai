@@ -141,7 +141,9 @@ class PendingEmbeddingsGeneration
 
             $dimensions = $this->dimensions ?: $provider->defaultEmbeddingsDimensions();
 
-            $providerOptions = $this->resolveProviderOptions($provider);
+            [$providerOptions, $headers] = $this->resolveProviderOptionsAndHeaders($provider);
+
+            $provider = $provider->withHeaders($headers);
 
             try {
                 return $this->shouldCacheIndividually()
@@ -431,7 +433,7 @@ class PendingEmbeddingsGeneration
                     $provider,
                     $model,
                     $this->timeout,
-                    is_array($this->providerOptions) ? $this->providerOptions : [],
+                    $this->queuedProviderOptions(),
                 )
             );
         }

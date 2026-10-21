@@ -13,16 +13,16 @@ interface ImageProvider extends Provider
      *
      * @param  array<Image>  $attachments
      * @param  'low'|'medium'|'high'|null  $quality
-     * @param  'low'|'auto'|null  $moderation
+     * @param  array<string, mixed>  $providerOptions
      */
     public function image(
         string $prompt,
         array $attachments = [],
         ?string $size = null,
         ?string $quality = null,
-        ?string $moderation = null,
         ?string $model = null,
         ?int $timeout = null,
+        array $providerOptions = [],
     ): ImageResponse;
 
     /**

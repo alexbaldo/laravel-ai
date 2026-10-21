@@ -45,7 +45,7 @@ test('reranking uses default model when none specified', function (): void {
 
     Reranking::of(['Doc A', 'Doc B'])->rerank('query', provider: 'openrouter');
 
-    Http::assertSent(fn (Request $request): bool => json_decode($request->body(), true)['model'] === 'cohere/rerank-v3.5');
+    Http::assertSent(fn (Request $request): bool => json_decode($request->body(), true)['model'] === 'cohere/rerank-4-pro');
 });
 
 test('reranking maps documents by index when results are returned out of order', function (): void {
@@ -94,3 +94,15 @@ function fakeOpenRouterRerankingResponse()
         ],
     ]);
 }
+
+test('reranking response reports the total tokens and search units', function (): void {
+    Http::fake(['*' => Http::response([
+        'results' => [['index' => 0, 'relevance_score' => 0.95]],
+        'usage' => ['total_tokens' => 320, 'search_units' => 1],
+    ])]);
+
+    $response = Reranking::of(['Doc A'])->rerank('query', provider: 'openrouter', model: 'cohere/rerank-v3.5');
+
+    expect($response->usage->inputTokens)->toBe(320)
+        ->and($response->usage->searchUnits)->toBe(1.0);
+});

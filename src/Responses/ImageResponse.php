@@ -6,8 +6,8 @@ use Countable;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Support\Collection;
 use Laravel\Ai\Responses\Data\GeneratedImage;
+use Laravel\Ai\Responses\Data\ImageUsage;
 use Laravel\Ai\Responses\Data\Meta;
-use Laravel\Ai\Responses\Data\Usage;
 use RuntimeException;
 
 class ImageResponse implements \Stringable, Countable, Htmlable
@@ -17,7 +17,7 @@ class ImageResponse implements \Stringable, Countable, Htmlable
      */
     public function __construct(
         public Collection $images,
-        public Usage $usage,
+        public ImageUsage $usage,
         public Meta $meta,
     ) {}
 
@@ -74,8 +74,8 @@ class ImageResponse implements \Stringable, Countable, Htmlable
 
         return sprintf(
             '<img src="data:%s;base64,%s" alt="%s" />',
-            $image->mime(),
-            $image->image,
+            e($image->mime()),
+            e($image->image),
             e($alt),
         );
     }

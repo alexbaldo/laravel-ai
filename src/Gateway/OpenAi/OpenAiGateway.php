@@ -5,6 +5,7 @@ namespace Laravel\Ai\Gateway\OpenAi;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Http\Client\Response;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Arr;
 use InvalidArgumentException;
 use Laravel\Ai\Contracts\Files\StorableFile;
 use Laravel\Ai\Contracts\Files\TranscribableAudio;
@@ -20,8 +21,10 @@ use Laravel\Ai\Gateway\Concerns\ParsesServerSentEvents;
 use Laravel\Ai\Gateway\Concerns\ResolvesAudioFilenames;
 use Laravel\Ai\Responses\AudioResponse;
 use Laravel\Ai\Responses\Data\GeneratedImage;
+use Laravel\Ai\Responses\Data\ImageUsage;
 use Laravel\Ai\Responses\Data\Meta;
 use Laravel\Ai\Responses\Data\TranscriptionSegment;
+use Laravel\Ai\Responses\Data\TranscriptionUsage;
 use Laravel\Ai\Responses\Data\Usage;
 use Laravel\Ai\Responses\EmbeddingsResponse;
 use Laravel\Ai\Responses\ImageResponse;
@@ -51,14 +54,13 @@ class OpenAiGateway implements Gateway, StepTextGateway
     /**
      * Generate an image.
      *
+     * `providerOptions.moderation` reaches the Responses API `image_generation` tool as is; the
+     * Images API branches force `moderation: 'low'` for `gpt-image*` models and drop it otherwise.
+     *
      * @param  array<Image>  $attachments
      * @param  '3:2'|'2:3'|'1:1'|null  $size
      * @param  'low'|'medium'|'high'|null  $quality
-     * @param  'low'|'auto'|null  $moderation  Only honored on the Responses API `image_generation`
-     *                                         tool path (`generateImageViaResponses()`). The classic
-     *                                         Images API branches below already force `moderation: 'low'`
-     *                                         for `gpt-image*` models on their own, regardless of this
-     *                                         argument -- see `sendImageGenerationRequest()`/`sendImageEditRequest()`.
+     * @param  array<string, mixed>  $providerOptions
      */
     public function generateImage(
         ImageProvider $provider,
@@ -67,8 +69,8 @@ class OpenAiGateway implements Gateway, StepTextGateway
         array $attachments = [],
         ?string $size = null,
         ?string $quality = null,
-        ?string $moderation = null,
         ?int $timeout = null,
+        array $providerOptions = [],
     ): ImageResponse {
         return $this->withErrorHandling(
             $provider->name(),
@@ -78,14 +80,14 @@ class OpenAiGateway implements Gateway, StepTextGateway
                 // tool (GI-A1/GI-A2) can. R2: the two branches below this
                 // one are untouched, so this is the only new branch (GI-A3).
                 $this->hasNonImageAttachment($attachments) => $this->generateImageViaResponses(
-                    $provider, $model, $prompt, $attachments, $size, $quality, $moderation, $timeout,
+                    $provider, $model, $prompt, $attachments, $size, $quality, $providerOptions['moderation'] ?? null, $timeout,
                 ),
                 filled($attachments) => $this->buildImageResponse(
-                    $this->sendImageEditRequest($provider, $model, $prompt, $attachments, $size, $quality, $timeout),
+                    $this->sendImageEditRequest($provider, $model, $prompt, $attachments, $size, $quality, $timeout, Arr::except($providerOptions, 'moderation')),
                     $provider, $model,
                 ),
                 default => $this->buildImageResponse(
-                    $this->sendImageGenerationRequest($provider, $model, $prompt, $size, $quality, $timeout),
+                    $this->sendImageGenerationRequest($provider, $model, $prompt, $size, $quality, $timeout, Arr::except($providerOptions, 'moderation')),
                     $provider, $model,
                 ),
             },
@@ -125,33 +127,33 @@ class OpenAiGateway implements Gateway, StepTextGateway
      * rather than shoehorned into the body below. R2: the body below, the
      * Images API branch, is untouched by this addition.
      */
-    protected function extractImageUsage(array $data, bool $viaResponses = false): Usage
+    protected function extractImageUsage(array $data, bool $viaResponses = false): ImageUsage
     {
         if ($viaResponses) {
             return $this->extractResponsesImageUsage($data);
         }
 
         $usage = $data['usage'] ?? [];
-        $outputDetails = $usage['output_tokens_details'] ?? null;
+        $modalities = $this->extractModalities($usage);
 
-        return new Usage(
-            inputTokens: [
-                'text' => $usage['input_tokens_details']['text_tokens'] ?? $usage['input_tokens'] ?? 0,
-                'image' => $usage['input_tokens_details']['image_tokens'] ?? 0,
-            ],
-            outputTokens: [
-                'text' => $outputDetails['text_tokens'] ?? 0,
-                'image' => $outputDetails ? ($outputDetails['image_tokens'] ?? 0) : ($usage['output_tokens'] ?? 0),
-            ],
-            cachedTokens: [
-                'text' => $usage['input_tokens_details']['cached_tokens_details']['text_tokens'] ?? $usage['input_tokens_details']['cached_tokens'] ?? 0,
-                'image' => $usage['input_tokens_details']['cached_tokens_details']['image_tokens'] ?? 0,
-            ],
+        if (! isset($usage['output_tokens_details'])) {
+            $modalities['output'] = ['text' => 0, 'image' => $usage['output_tokens'] ?? 0];
+        }
+
+        return new ImageUsage(
+            inputTokens: $usage['input_tokens'] ?? 0,
+            outputTokens: $usage['output_tokens'] ?? 0,
+            cacheReadInputTokens: $usage['input_tokens_details']['cached_tokens'] ?? null,
+            imageInputTokens: $usage['input_tokens_details']['image_tokens'] ?? null,
+            imageOutputTokens: isset($usage['output_tokens_details']) ? ($usage['output_tokens_details']['image_tokens'] ?? null) : ($usage['output_tokens'] ?? null),
+            modalities: $modalities,
         );
     }
 
     /**
      * Send an image generation request.
+     *
+     * @param  array<string, mixed>  $providerOptions
      */
     protected function sendImageGenerationRequest(
         ImageProvider $provider,
@@ -160,8 +162,10 @@ class OpenAiGateway implements Gateway, StepTextGateway
         ?string $size,
         ?string $quality,
         ?int $timeout,
+        array $providerOptions = [],
     ) {
         return $this->client($provider, $timeout ?? 120)->post('images/generations', [
+            ...$providerOptions,
             'model' => $model,
             'prompt' => $prompt,
             ...$provider->defaultImageOptions($size, $quality),
@@ -173,6 +177,8 @@ class OpenAiGateway implements Gateway, StepTextGateway
 
     /**
      * Send an image edit request with attachments.
+     *
+     * @param  array<string, mixed>  $providerOptions
      */
     protected function sendImageEditRequest(
         ImageProvider $provider,
@@ -182,6 +188,7 @@ class OpenAiGateway implements Gateway, StepTextGateway
         ?string $size,
         ?string $quality,
         ?int $timeout,
+        array $providerOptions = [],
     ) {
         $request = $this->client($provider, $timeout ?? 120);
 
@@ -198,18 +205,20 @@ class OpenAiGateway implements Gateway, StepTextGateway
             $request = $request->attach($field, $content, 'image.png');
         }
 
-        return $request->post('images/edits', array_filter([
+        return $request->post('images/edits', array_merge($providerOptions, array_filter([
             'model' => $model,
             'prompt' => $prompt,
             ...$provider->defaultImageOptions($size, $quality),
             ...($isGptImage
                 ? ['moderation' => 'low']
                 : []),
-        ]));
+        ])));
     }
 
     /**
      * Generate audio from the given text.
+     *
+     * @param  array<string, mixed>  $providerOptions
      */
     public function generateAudio(
         AudioProvider $provider,
@@ -218,6 +227,7 @@ class OpenAiGateway implements Gateway, StepTextGateway
         string $voice,
         ?string $instructions = null,
         int $timeout = 30,
+        array $providerOptions = [],
     ): AudioResponse {
         $voice = match ($voice) {
             'default-male' => 'ash',
@@ -227,18 +237,18 @@ class OpenAiGateway implements Gateway, StepTextGateway
 
         $response = $this->withErrorHandling(
             $provider->name(),
-            fn () => $this->client($provider, $timeout)->post('audio/speech', array_filter([
+            fn () => $this->client($provider, $timeout)->post('audio/speech', array_merge(['speed' => 1.0], $providerOptions, array_filter([
                 'model' => $model,
                 'input' => $text,
                 'voice' => $voice,
                 'response_format' => 'mp3',
-                'speed' => 1.0,
                 'instructions' => $instructions,
-            ])),
+            ]))),
         );
 
         return new AudioResponse(
             base64_encode($response->body()),
+            new Usage,
             new Meta($provider->name(), $model),
             'audio/mpeg',
         );
@@ -293,7 +303,12 @@ class OpenAiGateway implements Gateway, StepTextGateway
                 $segment['start'] ?? 0,
                 $segment['end'] ?? 0,
             )),
-            $this->extractUsage($data),
+            new TranscriptionUsage(
+                inputTokens: Arr::get($data, 'usage.input_tokens', 0),
+                outputTokens: Arr::get($data, 'usage.output_tokens', 0),
+                audioSeconds: Arr::get($data, 'usage.seconds') ?? Arr::get($data, 'duration'),
+                modalities: $this->extractModalities($data['usage'] ?? []),
+            ),
             new Meta($provider->name(), $model),
         );
     }
@@ -322,7 +337,7 @@ class OpenAiGateway implements Gateway, StepTextGateway
 
         return new EmbeddingsResponse(
             collect($data['data'] ?? [])->pluck('embedding')->all(),
-            new Usage(['text' => $data['usage']['prompt_tokens'] ?? 0]),
+            new Usage($data['usage']['prompt_tokens'] ?? 0),
             new Meta($provider->name(), $model),
         );
     }

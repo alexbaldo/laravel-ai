@@ -3,19 +3,22 @@
 namespace Laravel\Ai\Gateway\OpenAi\Concerns;
 
 use Illuminate\Support\Collection;
+use Laravel\Ai\Concerns\JoinsReasoning;
 use Laravel\Ai\Exceptions\AiException;
 use Laravel\Ai\Gateway\Concerns\DecodesStructuredOutput;
 use Laravel\Ai\Gateway\StepResponse;
 use Laravel\Ai\Providers\Provider;
 use Laravel\Ai\Responses\Data\FinishReason;
+use Laravel\Ai\Responses\Data\ImageUsage;
 use Laravel\Ai\Responses\Data\Meta;
+use Laravel\Ai\Responses\Data\ProviderToolCall;
+use Laravel\Ai\Responses\Data\TextUsage;
 use Laravel\Ai\Responses\Data\ToolCall;
 use Laravel\Ai\Responses\Data\UrlCitation;
-use Laravel\Ai\Responses\Data\Usage;
 
 trait ParsesTextResponses
 {
-    use DecodesStructuredOutput;
+    use DecodesStructuredOutput, JoinsReasoning;
 
     /**
      * Validate the OpenAI response data.
@@ -62,7 +65,9 @@ trait ParsesTextResponses
             meta: new Meta($provider->name(), $data['model'] ?? '', $this->extractCitations($output)),
             structured: $structured ? $this->decodeStructuredOutput($text) : null,
             continuationToken: $data['id'] ?? '',
-            providerContentBlocks: $this->isStateless($provider) ? $this->extractReplayBlocks($output) : [],
+            replayBlocks: $this->extractReplayBlocks($output),
+            reasoning: $this->extractReasoning($output),
+            providerToolCalls: $this->extractProviderToolCalls($output),
         );
     }
 
@@ -74,6 +79,21 @@ trait ParsesTextResponses
         $lastOutput = last($output);
 
         return is_array($lastOutput) ? ($lastOutput['content'][0]['text'] ?? '') : '';
+    }
+
+    /**
+     * Extract the reasoning text from the output array.
+     */
+    protected function extractReasoning(array $output): string
+    {
+        return static::joinReasoning(
+            (new Collection($output))
+                ->where('type', 'reasoning')
+                ->flatMap(fn (array $item): array => [
+                    (new Collection($item['summary'] ?? []))->pluck('text')->implode(''),
+                    (new Collection($item['content'] ?? []))->pluck('text')->implode(''),
+                ])
+        );
     }
 
     /**
@@ -108,7 +128,7 @@ trait ParsesTextResponses
     }
 
     /**
-     * Extract the ordered response output for stateless (store=false) replay.
+     * Extract the ordered response output for full-history replay.
      *
      * @return array<int, array<string, mixed>>
      */
@@ -118,39 +138,83 @@ trait ParsesTextResponses
     }
 
     /**
+     * Extract the provider-hosted tool items from the output array.
+     *
+     * @return array<int, ProviderToolCall>
+     */
+    protected function extractProviderToolCalls(array $output): array
+    {
+        return array_values(array_map(
+            fn (array $item): ProviderToolCall => new ProviderToolCall($item['id'] ?? '', $item['type'], $item),
+            array_filter($output, fn ($item): bool => is_array($item)
+                && ($item['type'] ?? '') !== 'function_call'
+                && str_ends_with((string) ($item['type'] ?? ''), '_call')),
+        ));
+    }
+
+    /**
      * Extract usage data from the response.
      */
-    protected function extractUsage(array $data): Usage
+    protected function extractUsage(array $data): TextUsage
     {
         $usage = $data['usage'] ?? [];
-        $details = $usage['input_tokens_details'] ?? [];
-        $cachedTokens = $details['cached_tokens'] ?? 0;
-        $cacheWriteTokens = $details['cache_write_tokens'] ?? 0;
 
-        // Cached and cache-write tokens are billed at their own rates, so they do not
-        // belong in the plain input count. They are text tokens, which is why only the
-        // text bucket is corrected and the image and audio ones are taken as reported.
-        $textTokens = $details['text_tokens'] ?? $usage['input_tokens'] ?? 0;
+        return new TextUsage(
+            inputTokens: $usage['input_tokens'] ?? 0,
+            outputTokens: $usage['output_tokens'] ?? 0,
+            cacheReadInputTokens: $usage['input_tokens_details']['cached_tokens'] ?? null,
+            cacheWriteInputTokens: $usage['input_tokens_details']['cache_write_tokens'] ?? null,
+            reasoningTokens: $usage['output_tokens_details']['reasoning_tokens'] ?? null,
+            modalities: $this->extractModalities($usage),
+        );
+    }
 
-        return new Usage(
-            inputTokens: [
-                'text' => max($textTokens - $cachedTokens - $cacheWriteTokens, 0),
-                'image' => $details['image_tokens'] ?? 0,
-                'audio' => $details['audio_tokens'] ?? 0,
+    /**
+     * Split OpenAI usage by modality, since image and audio tokens are billed at their own rates.
+     *
+     * @param  array<string, mixed>  $usage
+     * @return array<string, array<string, int>>
+     */
+    protected function extractModalities(array $usage): array
+    {
+        // Transcriptions report "input_token_details"; every other endpoint "input_tokens_details"...
+        $input = $usage['input_tokens_details'] ?? $usage['input_token_details'] ?? [];
+        $output = $usage['output_tokens_details'] ?? [];
+        $cached = $input['cached_tokens_details'] ?? ['text' => $input['cached_tokens'] ?? 0];
+        $cached = ['text' => $cached['text_tokens'] ?? $cached['text'] ?? 0, 'image' => $cached['image_tokens'] ?? 0, 'audio' => $cached['audio_tokens'] ?? 0];
+
+        $image = $input['image_tokens'] ?? 0;
+        $audio = $input['audio_tokens'] ?? 0;
+        $text = $input['text_tokens'] ?? ($usage['input_tokens'] ?? 0) - $image - $audio;
+
+        return [
+            'input' => [
+                'text' => max($text - $cached['text'] - ($input['cache_write_tokens'] ?? 0), 0),
+                'image' => max($image - $cached['image'], 0),
+                'audio' => max($audio - $cached['audio'], 0),
             ],
-            outputTokens: [
-                'text' => $usage['output_tokens_details']['text_tokens'] ?? $usage['output_tokens'] ?? 0,
-                'image' => $usage['output_tokens_details']['image_tokens'] ?? 0,
-                'audio' => $usage['output_tokens_details']['audio_tokens'] ?? 0,
-                'reasoning' => $usage['output_tokens_details']['reasoning_tokens'] ?? 0,
+            'output' => [
+                'text' => $output['text_tokens'] ?? max(($usage['output_tokens'] ?? 0) - ($output['reasoning_tokens'] ?? 0) - ($output['image_tokens'] ?? 0) - ($output['audio_tokens'] ?? 0), 0),
+                'image' => $output['image_tokens'] ?? 0,
+                'audio' => $output['audio_tokens'] ?? 0,
             ],
-            cachedTokens: [
-                'text' => $details['cached_tokens_details']['text_tokens'] ?? $cachedTokens,
-                'image' => $details['cached_tokens_details']['image_tokens'] ?? 0,
-                'audio' => $details['cached_tokens_details']['audio_tokens'] ?? 0,
-            ],
-            cacheWriteInputTokens: $cacheWriteTokens,
-            cacheReadInputTokens: $cachedTokens,
+            'cached' => $cached,
+        ];
+    }
+
+    /**
+     * Extract usage data from an image generation response.
+     */
+    protected function extractImageUsage(array $data): ImageUsage
+    {
+        $usage = $data['usage'] ?? [];
+
+        return new ImageUsage(
+            inputTokens: $usage['input_tokens'] ?? 0,
+            outputTokens: $usage['output_tokens'] ?? 0,
+            cacheReadInputTokens: $usage['input_tokens_details']['cached_tokens'] ?? null,
+            imageInputTokens: $usage['input_tokens_details']['image_tokens'] ?? null,
+            imageOutputTokens: $usage['output_tokens_details']['image_tokens'] ?? null,
         );
     }
 
@@ -159,6 +223,14 @@ trait ParsesTextResponses
      */
     protected function extractFinishReason(array $data): FinishReason
     {
+        if (($data['status'] ?? '') === 'incomplete') {
+            return match ($data['incomplete_details']['reason'] ?? null) {
+                'max_output_tokens' => FinishReason::Length,
+                'content_filter' => FinishReason::ContentFilter,
+                default => FinishReason::Unknown,
+            };
+        }
+
         $lastOutput = last($data['output'] ?? []);
         $status = $lastOutput['status'] ?? $data['status'] ?? '';
         $type = $lastOutput['type'] ?? '';

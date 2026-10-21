@@ -327,11 +327,8 @@ test('the tool model falls back to the package default image model when neither 
     Http::assertSent(function (Request $request): bool {
         $body = json_decode($request->body(), true);
 
-        // The package's own fallback (OpenAiProvider::defaultImageModel())
-        // is unrelated to gpt-image-2.5-flare, which ai-ai pins via its own
-        // config (GI-B1) -- this documents that boundary so the two
-        // defaults are never confused with one another.
-        return $body['tools'][0]['model'] === 'gpt-image-2';
+        // The package's own fallback (OpenAiProvider::defaultImageModel()).
+        return $body['tools'][0]['model'] === 'gpt-image-2.5-flare';
     });
 });
 

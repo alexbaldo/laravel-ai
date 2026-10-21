@@ -4,6 +4,7 @@ namespace Laravel\Ai\Gateway\OpenAi\Concerns;
 
 use Illuminate\JsonSchema\JsonSchemaTypeFactory;
 use Laravel\Ai\Attributes\Strict;
+use Laravel\Ai\Contracts\Providers\SupportsCodeExecution;
 use Laravel\Ai\Contracts\Providers\SupportsFileSearch;
 use Laravel\Ai\Contracts\Providers\SupportsImageGeneration;
 use Laravel\Ai\Contracts\Providers\SupportsWebSearch;
@@ -11,6 +12,7 @@ use Laravel\Ai\Contracts\Tool;
 use Laravel\Ai\Enums\Lab;
 use Laravel\Ai\ObjectSchema;
 use Laravel\Ai\Providers\Provider;
+use Laravel\Ai\Providers\Tools\CodeExecution;
 use Laravel\Ai\Providers\Tools\FileSearch;
 use Laravel\Ai\Providers\Tools\ImageGeneration;
 use Laravel\Ai\Providers\Tools\ProviderTool;
@@ -39,7 +41,7 @@ trait MapsTools
 
                 $mapped[] = [
                     'type' => 'tool_search',
-                    ...array_diff_key($tool->providerOptions(Lab::OpenAI), ['type' => true]),
+                    ...array_diff_key($tool->providerOptions(Lab::tryFrom($provider->driver()) ?? $provider->driver()), ['type' => true]),
                 ];
 
                 foreach ($tool->tools as $deferred) {
@@ -106,11 +108,27 @@ trait MapsTools
     protected function mapProviderTool(ProviderTool $tool, Provider $provider): array
     {
         return match (true) {
+            $tool instanceof CodeExecution => $this->mapCodeExecutionTool($tool, $provider),
             $tool instanceof FileSearch => $this->mapFileSearchTool($tool, $provider),
             $tool instanceof ImageGeneration => $this->mapImageGenerationTool($tool, $provider),
             $tool instanceof WebSearch => $this->mapWebSearchTool($tool, $provider),
             default => throw new RuntimeException('Provider ['.$provider->name().'] does not support the ['.class_basename($tool).'] tool.'),
         };
+    }
+
+    /**
+     * Map a code execution tool to an OpenAI code interpreter definition.
+     */
+    protected function mapCodeExecutionTool(CodeExecution $tool, Provider $provider): array
+    {
+        if (! $provider instanceof SupportsCodeExecution) {
+            throw new RuntimeException('Provider ['.$provider->name().'] does not support code execution.');
+        }
+
+        return [
+            'type' => 'code_interpreter',
+            ...$provider->codeExecutionToolOptions($tool),
+        ];
     }
 
     /**

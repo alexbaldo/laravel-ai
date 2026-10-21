@@ -5,149 +5,36 @@ namespace Laravel\Ai\Responses\Data;
 use Illuminate\Contracts\Support\Arrayable;
 use JsonSerializable;
 
-/**
- * @property-read int $promptTokens
- * @property-read int $completionTokens
- * @property-read int $reasoningTokens
- * @property-read int $cacheWriteInputTokens
- * @property-read int $cacheReadInputTokens
- */
-class Usage implements Arrayable, JsonSerializable
+readonly class Usage implements Arrayable, JsonSerializable
 {
+    /**
+     * @param  int  $inputTokens  Total input tokens.
+     * @param  int  $outputTokens  Total output tokens.
+     */
     public function __construct(
-        int|array|null $inputTokens = [],
-        int|array|null $outputTokens = [],
-        int|array|null $cachedTokens = [],
-        int|array|null $toolsTokens = [],
-        ?int $reasoningTokens = null,
-        ?int $cacheWriteInputTokens = null,
-        ?int $cacheReadInputTokens = null,
-        ?int $promptTokens = null,
-        ?int $completionTokens = null,
-    ) {
-        $this->inputTokens = $this->normalizeTokenCollection($inputTokens);
-        $this->outputTokens = $this->normalizeTokenCollection($outputTokens);
-        $this->cachedTokens = $this->normalizeTokenCollection($cachedTokens);
-        $this->toolsTokens = $this->normalizeTokenCollection($toolsTokens);
+        public int $inputTokens = 0,
+        public int $outputTokens = 0,
+    ) {}
 
-        // Backward compatibility with legacy scalar constructor arguments.
-        if ($promptTokens !== null) {
-            $this->inputTokens['text'] = $promptTokens;
-        }
-
-        if ($completionTokens !== null) {
-            $this->outputTokens['text'] = $completionTokens;
-        }
-
-        if ($reasoningTokens !== null) {
-            $this->outputTokens['reasoning'] = $reasoningTokens;
-        }
-
-        if ($cacheWriteInputTokens !== null) {
-            $this->cachedTokens['write'] = $cacheWriteInputTokens;
-        }
-
-        if ($cacheReadInputTokens !== null) {
-            $this->cachedTokens['read'] = $cacheReadInputTokens;
-        }
-
-        // Backward compatibility for positional old constructor:
-        // Usage(prompt, completion, cacheWrite, cacheRead, reasoning)
-        if (is_int($cachedTokens) && $cachedTokens !== 0 && ! array_key_exists('write', $this->cachedTokens)) {
-            $this->cachedTokens['write'] = $cachedTokens;
-        }
-
-        if (is_int($toolsTokens) && $toolsTokens !== 0 && ! array_key_exists('read', $this->cachedTokens)) {
-            $this->cachedTokens['read'] = $toolsTokens;
-            $this->toolsTokens = [];
-        }
-    }
-
-    public array $inputTokens;
-
-    public array $outputTokens;
-
-    public array $cachedTokens;
-
-    public array $toolsTokens;
-
-    public function __get(string $name): mixed
+    /**
+     * Get the total number of input and output tokens.
+     */
+    public function totalTokens(): int
     {
-        return match ($name) {
-            'promptTokens' => $this->promptTokens(),
-            'completionTokens' => $this->completionTokens(),
-            'reasoningTokens' => $this->reasoningTokens(),
-            'cacheWriteInputTokens' => $this->cacheWriteInputTokens(),
-            'cacheReadInputTokens' => $this->cacheReadInputTokens(),
-            default => null,
-        };
-    }
-
-    public function promptTokens(): int
-    {
-        return array_sum($this->inputTokens);
-    }
-
-    public function completionTokens(): int
-    {
-        return array_sum(array_diff_key($this->outputTokens, ['reasoning' => true]));
-    }
-
-    public function reasoningTokens(): int
-    {
-        return $this->outputTokens['reasoning'] ?? 0;
-    }
-
-    public function cacheWriteInputTokens(): int
-    {
-        return $this->cachedTokens['write'] ?? 0;
-    }
-
-    public function cacheReadInputTokens(): int
-    {
-        return $this->cachedTokens['read'] ?? array_sum($this->cachedTokens);
+        return $this->inputTokens + $this->outputTokens;
     }
 
     /**
-     * Add the given usage to the current usage and return a new usage instance.
+     * Get the token counts keyed by billing bucket and modality, so each can be priced at its own rate.
+     *
+     * @return array<string, array<string, int>>
      */
-    public function add(Usage $usage): Usage
+    public function breakdown(): array
     {
-        return new Usage(
-            $this->accumulate($this->inputTokens, $usage->inputTokens),
-            $this->accumulate($this->outputTokens, $usage->outputTokens),
-            $this->accumulate($this->cachedTokens, $usage->cachedTokens),
-            $this->accumulate($this->toolsTokens, $usage->toolsTokens),
-        );
-    }
-
-    /**
-     * Accumulates elements from two collections.
-     */
-    private function accumulate(array $a1, array $a2): array
-    {
-        $result = [];
-        foreach (array_keys($a1 + $a2) as $key) {
-            $result[$key] = ($a1[$key] ?? 0) + ($a2[$key] ?? 0);
-        }
-
-        return $result;
-    }
-
-    /**
-     * Normalize scalar or null usage values to modality-indexed arrays.
-     */
-    private function normalizeTokenCollection(int|array|null $value): array
-    {
-        if (is_array($value)) {
-            return $value;
-        }
-
-        if ($value === null) {
-            return [];
-        }
-
-        return ['text' => $value];
+        return array_filter([
+            'input_tokens' => array_filter(['text' => $this->inputTokens]),
+            'output_tokens' => array_filter(['text' => $this->outputTokens]),
+        ]);
     }
 
     /**
@@ -156,28 +43,8 @@ class Usage implements Arrayable, JsonSerializable
     public function toArray(): array
     {
         return [
-            // New modality-indexed structure
-            'input_tokens' => $this->includeTotals($this->inputTokens),
-            'output_tokens' => $this->includeTotals($this->outputTokens),
-            'cached_tokens' => $this->includeTotals($this->cachedTokens),
-            'tools_tokens' => $this->includeTotals($this->toolsTokens),
-            // Backward compatibility - legacy scalar field names
-            'prompt_tokens' => $this->promptTokens(),
-            'completion_tokens' => $this->completionTokens(),
-            'cache_write_input_tokens' => $this->cacheWriteInputTokens(),
-            'cache_read_input_tokens' => $this->cacheReadInputTokens(),
-            'reasoning_tokens' => $this->reasoningTokens(),
-        ];
-    }
-
-    /**
-     * Include totals in each usage array.
-     */
-    private function includeTotals($data): array
-    {
-        return [
-            'total' => collect($data)->values()->sum(),
-            ...$data,
+            'input_tokens' => $this->inputTokens,
+            'output_tokens' => $this->outputTokens,
         ];
     }
 
