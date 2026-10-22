@@ -227,8 +227,16 @@ class GeminiGateway implements Gateway, StepTextGateway
     ): AudioResponse {
         $body = array_merge(['store' => false], $providerOptions, [
             'model' => $model,
+            // Gemini speaks the text verbatim, so delivery instructions go in a speech_metadata annotation.
             'input' => $instructions !== null && trim($instructions) !== ''
-                ? trim($instructions)."\n\n".$text
+                ? [[
+                    'type' => 'user_input',
+                    'content' => [[
+                        'type' => 'text',
+                        'text' => $text,
+                        'annotations' => [['type' => 'speech_metadata', 'style' => trim($instructions)]],
+                    ]],
+                ]]
                 : $text,
             'response_format' => ['type' => 'audio'],
             'generation_config' => array_replace_recursive($providerOptions['generation_config'] ?? [], [
@@ -263,8 +271,13 @@ class GeminiGateway implements Gateway, StepTextGateway
             throw new RuntimeException('Gemini returned invalid audio data.');
         }
 
+        // Newer TTS models return a full WAV (with a C2PA chunk); wrapping it again would play the extra chunks as noise.
+        $wav = str_starts_with($pcm, 'RIFF') && substr($pcm, 8, 4) === 'WAVE'
+            ? $pcm
+            : $this->pcmToWav($pcm, $audio['sample_rate'] ?? 24000, $audio['channels'] ?? 1);
+
         return new AudioResponse(
-            base64_encode($this->pcmToWav($pcm, $audio['sample_rate'] ?? 24000, $audio['channels'] ?? 1)),
+            base64_encode($wav),
             $this->extractUsage($data),
             new Meta($provider->name(), $model),
             'audio/wav',

@@ -60,18 +60,37 @@ test('audio request resolves default voice aliases', function (): void {
     Http::assertSent(fn (Request $request): bool => $request->data()['generation_config']['speech_config'][0]['voice'] === 'Puck');
 });
 
-test('audio instructions are prepended to the prompt instead of sent in speech config', function (): void {
+test('audio instructions are sent as a speech metadata style instead of spoken text', function (): void {
     Http::fake([
         'generativelanguage.googleapis.com/*' => fakeGeminiAudioResponse(),
     ]);
 
     Audio::of('Have a wonderful day!')
         ->voice('Kore')
-        ->instructions('Say cheerfully:')
+        ->instructions(' Say cheerfully. ')
         ->generate(provider: 'gemini', model: 'gemini-3.1-flash-tts-preview');
 
-    expect(sentRequest()->data()['input'])->toBe("Say cheerfully:\n\nHave a wonderful day!")
-        ->and(sentRequest()->data()['generation_config']['speech_config'][0])->not->toHaveKey('instructions');
+    expect(sentRequest()->data()['input'])->toBe([[
+        'type' => 'user_input',
+        'content' => [[
+            'type' => 'text',
+            'text' => 'Have a wonderful day!',
+            'annotations' => [['type' => 'speech_metadata', 'style' => 'Say cheerfully.']],
+        ]],
+    ]])->and(sentRequest()->data()['generation_config']['speech_config'][0])->not->toHaveKey('instructions');
+});
+
+test('blank audio instructions leave the input as plain text', function (): void {
+    Http::fake([
+        'generativelanguage.googleapis.com/*' => fakeGeminiAudioResponse(),
+    ]);
+
+    Audio::of('Have a wonderful day!')
+        ->voice('Kore')
+        ->instructions('   ')
+        ->generate(provider: 'gemini', model: 'gemini-3.1-flash-tts-preview');
+
+    expect(sentRequest()->data()['input'])->toBe('Have a wonderful day!');
 });
 
 test('audio response is wrapped as wav with correct meta', function (): void {
@@ -88,6 +107,22 @@ test('audio response is wrapped as wav with correct meta', function (): void {
         ->and(substr($response->content(), 8, 4))->toBe('WAVE')
         ->and($response->meta->provider)->toBe('gemini')
         ->and($response->meta->model)->toBe('gemini-3.1-flash-tts-preview');
+});
+
+test('audio that gemini already returns as wav is passed through untouched', function (): void {
+    $wav = 'RIFF'.pack('V', 36 + 4).'WAVE'.'fmt '.pack('VvvVVvv', 16, 1, 1, 24000, 48000, 2, 16)
+        .'data'.pack('V', 4)."\x01\x00\x02\x00".'C2PA'.pack('V', 4).'jumb';
+
+    Http::fake([
+        'generativelanguage.googleapis.com/*' => fakeGeminiAudioResponse($wav, extra: ['mime_type' => 'audio/wav']),
+    ]);
+
+    $response = Audio::of('Hello world')
+        ->voice('Kore')
+        ->generate(provider: 'gemini', model: 'gemini-3.8-flash-tts');
+
+    expect($response->content())->toBe($wav)
+        ->and($response->mimeType())->toBe('audio/wav');
 });
 
 test('audio response honours the sample rate and channels gemini reports', function (): void {
